@@ -103,5 +103,19 @@ function clean(key, value) {
   }
   if (lowered.startsWith('not found')) return '';
 
+  if (key === 'REGISTRATION_NUMBER') return registrationOnly(out);
+
   return out;
+}
+
+/**
+ * The model tacks commentary onto the number:
+ * "KRS 0000657029 — no German HRB/HRA found after extensive search".
+ * The column wants the number alone, so the value is cut at the first dash,
+ * semicolon or parenthesis and the first piece that carries a digit is kept.
+ * No digit anywhere means no number was found at all.
+ */
+function registrationOnly(value) {
+  const parts = value.split(/\s+[—–-]\s+|[;(]/).map((part) => part.replace(/[\s),.]+$/, '').trim());
+  return parts.find((part) => /\d/.test(part)) || '';
 }

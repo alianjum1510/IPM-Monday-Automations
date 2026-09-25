@@ -150,6 +150,19 @@ CITY: Hamburg
   assert.equal(fields.CITY, 'Hamburg');
 });
 
+test('commentary after the registration number is dropped', () => {
+  const cases = {
+    'KRS 0000657029 — no German HRB/HRA found after extensive search': 'KRS 0000657029',
+    'HRB 12345 B - Amtsgericht Charlottenburg': 'HRB 12345 B',
+    'HRA 260269 (verified on handelsregister)': 'HRA 260269',
+    'HRB 98765; historical HRB 1111 in NOTES': 'HRB 98765',
+    'No German HRB/HRA found': '',
+  };
+  for (const [input, expected] of Object.entries(cases)) {
+    assert.equal(parseEnrichment(`REGISTRATION_NUMBER: ${input}`).REGISTRATION_NUMBER, expected, input);
+  }
+});
+
 test('multi-line NOTES are kept whole', () => {
   const fields = parseEnrichment(`
 NOTES: First line of notes.

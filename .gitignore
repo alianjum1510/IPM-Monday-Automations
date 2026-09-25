@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Secrets - MONDAY_API_TOKEN / OPENAI_API_KEY live on the monday app, never in git
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage and build output
+coverage/
+.nyc_output/
+dist/
+build/
+
+# monday apps-cli packaging output
+*.tar.gz
+*.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

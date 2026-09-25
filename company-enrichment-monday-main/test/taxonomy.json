@@ -1,0 +1,113 @@
+{
+  "_comment": "A slice of the live taxonomy boards behind the Industry (5094116229) and Job Function (5095332326) board_relation columns. Includes the bracketed long names, the \"&\" names, a parent/child pair and every duplicate-name collision, so the matcher is tested against how these boards are really spelled.",
+  "industryBoardId": "5094116229",
+  "jobFunctionBoardId": "5095332326",
+  "industries": [
+    {
+      "id": "2820958505",
+      "name": "Nicht zugewiesen"
+    },
+    {
+      "id": "2820930013",
+      "name": "Handel & Vertrieb"
+    },
+    {
+      "id": "2820930309",
+      "name": "Handel allgemein"
+    },
+    {
+      "id": "2820928534",
+      "name": "Großhandel (Industrie-; Arbeitsschutz-; Hygiene-; Auto-; Farb-; Bau-; Medizin- und Sanitärgroßhandel)"
+    },
+    {
+      "id": "2820928512",
+      "name": "Einzelhandel (LEH; Baumärkte; Sanitätshäuser; Apotheken)"
+    },
+    {
+      "id": "2820958507",
+      "name": "Onlinehandel & Handelsvertreter"
+    },
+    {
+      "id": "2820930311",
+      "name": "Industrie & Produktion"
+    },
+    {
+      "id": "2820958555",
+      "name": "Automobilindustrie (inkl. KFZ-Werkstätten; Autolackierereien; Tankstellen; Automotive)"
+    },
+    {
+      "id": "2820958547",
+      "name": "Chemie- & Pharmaindustrie"
+    },
+    {
+      "id": "2820928525",
+      "name": "Banken & Versicherungen"
+    },
+    {
+      "id": "2820958548",
+      "name": "Gesundheitswesen & Pflege"
+    },
+    {
+      "id": "2820930278",
+      "name": "Transport & Logistik"
+    }
+  ],
+  "jobFunctions": [
+    {
+      "id": "2872725350",
+      "name": "Geschäftsführung"
+    },
+    {
+      "id": "2872726671",
+      "name": "Betriebsleiter (COO)"
+    },
+    {
+      "id": "2872722662",
+      "name": "Finanzvorstand (CFO)"
+    },
+    {
+      "id": "2872722261",
+      "name": "Technikvorstand (CTO)"
+    },
+    {
+      "id": "2872732340",
+      "name": "Technikvorstand (CTO)"
+    },
+    {
+      "id": "2872722656",
+      "name": "Geschäftsführer"
+    },
+    {
+      "id": "2872726857",
+      "name": "Geschäftsführer"
+    },
+    {
+      "id": "2872722273",
+      "name": "Vertriebsleiter (CSO)"
+    },
+    {
+      "id": "2872721414",
+      "name": "Logistikmanager"
+    },
+    {
+      "id": "2872719858",
+      "name": "Logistikmanager"
+    },
+    {
+      "id": "2872728862",
+      "name": "Scrum Master"
+    },
+    {
+      "id": "2872722424",
+      "name": "Scrum Master"
+    },
+    {
+      "id": "2872711968",
+      "name": "Marketingleiter"
+    },
+    {
+      "id": "2872712044",
+      "name": "other"
+    }
+  ]
+}

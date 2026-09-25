@@ -1,0 +1,20 @@
+{
+  "name": "company-enrichment-app",
+  "version": "1.0.0",
+  "description": "monday.com workflow block: deep-research enrichment of German company leads.",
+  "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "express": "^4.21.2"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

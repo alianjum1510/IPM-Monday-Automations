@@ -157,6 +157,12 @@ test('commentary after the registration number is dropped', () => {
     'HRA 260269 (verified on handelsregister)': 'HRA 260269',
     'HRB 98765; historical HRB 1111 in NOTES': 'HRB 98765',
     'No German HRB/HRA found': '',
+    'Not found — KRS 0000657029 (Polish register)': 'KRS 0000657029',
+    'No German HRB/HRA found; Polish KRS 0000657029': 'KRS 0000657029',
+    'Not found in Handelsregister, KRS: 0000657029': 'KRS: 0000657029',
+    'Not found after 20 searches': '',
+    'N/A': '',
+    '01234567': '01234567',
   };
   for (const [input, expected] of Object.entries(cases)) {
     assert.equal(parseEnrichment(`REGISTRATION_NUMBER: ${input}`).REGISTRATION_NUMBER, expected, input);
@@ -381,4 +387,95 @@ test('every planned column exists on at least one board', () => {
 
   assert.ok(written.includes('Company Email'));
   assert.ok(written.length >= 20, `expected a full write, got ${written.length} columns`);
+});
+
+test('notes the model attaches to the company name are cut off', () => {
+  const cases = {
+    'Muster GmbH (verified on handelsregister.de)': 'Muster GmbH',
+    'Muster GmbH — legal name as registered': 'Muster GmbH',
+    'Muster GmbH; formerly Alt Muster GmbH': 'Muster GmbH',
+    'Muster GmbH, formerly Alt Muster GmbH': 'Muster GmbH',
+    'Muster GmbH verified via Impressum': 'Muster GmbH',
+    'Muster GmbH & Co. KG (HIGH confidence)': 'Muster GmbH & Co. KG',
+    'Legal name: Muster GmbH': 'Muster GmbH',
+  };
+  for (const [input, expected] of Object.entries(cases)) {
+    assert.equal(parseEnrichment(`CORRECT_NAME: ${input}`).CORRECT_NAME, expected, input);
+  }
+});
+
+test('a real company name is left exactly as it is', () => {
+  for (const name of [
+    'ANDREAS STIHL AG & Co. KG',
+    'Muster (Deutschland) GmbH',
+    'Rhein - Main Bau GmbH',
+    'Müller, Meier & Partner mbB',
+    'The Coca-Cola Company GmbH',
+    'Dr. Oetker Nahrungsmittel KG',
+  ]) {
+    assert.equal(parseEnrichment(`CORRECT_NAME: ${name}`).CORRECT_NAME, name, name);
+  }
+});
+
+test('notes the model attaches to the address are cut off', () => {
+  const cases = {
+    'CORRECT_ADDRESS: Badstraße 115, 71336 Waiblingen, Deutschland (Hauptsitz)':
+      'Badstraße 115, 71336 Waiblingen, Deutschland',
+    'CORRECT_ADDRESS: Badstraße 115, 71336 Waiblingen — as listed on the Impressum':
+      'Badstraße 115, 71336 Waiblingen',
+    'CORRECT_ADDRESS: Badstraße 115, 71336 Waiblingen, verified via handelsregister.de':
+      'Badstraße 115, 71336 Waiblingen',
+    'CORRECT_ADDRESS: Badstraße 115, 71336 Waiblingen. The company moved here in 2021.':
+      'Badstraße 115, 71336 Waiblingen',
+    'ADDRESS_LINE_1: Badstraße 115; formerly Hauptstraße 3': 'Badstraße 115',
+    'CITY: Waiblingen (Rems-Murr-Kreis)': 'Waiblingen',
+    'POSTAL_CODE: 71336 (confirmed)': '71336',
+    'ADDRESS_LINE_1: Musterweg 1 - 3': 'Musterweg 1 - 3',
+    'ADDRESS_LINE_2: c/o Muster GmbH': 'c/o Muster GmbH',
+    'CITY: Am See': 'Am See',
+  };
+  for (const [input, expected] of Object.entries(cases)) {
+    const [key] = input.split(':');
+    assert.equal(parseEnrichment(input)[key], expected, input);
+  }
+});
+
+test('an address that is still prose after cleaning is not written at all', () => {
+  const fields = parseEnrichment('ADDRESS_LINE_1: Probably Badstraße 115 but this is unverified');
+  assert.equal(fields.ADDRESS_LINE_1, '');
+
+  const { values } = buildColumnValues(warm.columns, fields);
+  assert.equal(values[idOf(warm, 'Address Line 1')], NA_TEXT);
+});
+
+test('a note on the line after the address never reaches the cell', () => {
+  const fields = parseEnrichment(`
+CORRECT_ADDRESS: Badstraße 115, 71336 Waiblingen
+Note: the old address on LinkedIn is outdated.
+CITY: Waiblingen
+`);
+  assert.equal(fields.CORRECT_ADDRESS, 'Badstraße 115, 71336 Waiblingen');
+  assert.equal(fields.CITY, 'Waiblingen');
+});
+
+test('removed notes are kept in Comments and named in the result', () => {
+  const answer = FULL_ANSWER.replace(
+    'CORRECT_NAME: ANDREAS STIHL AG & Co. KG',
+    'CORRECT_NAME: ANDREAS STIHL AG & Co. KG (verified on handelsregister.de)',
+  );
+  const { values, cleaned } = buildColumnValues(warm.columns, parseEnrichment(answer));
+
+  assert.equal(values[idOf(warm, 'Company / Customer Name')], 'ANDREAS STIHL AG & Co. KG');
+  assert.match(
+    values[idOf(warm, 'Comments')].text,
+    /Company \/ Customer Name \(note removed\): verified on handelsregister\.de/,
+  );
+  assert.deepEqual(cleaned, ['Company / Customer Name']);
+});
+
+test('a clean answer removes nothing', () => {
+  const { cleaned, values } = buildColumnValues(warm.columns, parseEnrichment(FULL_ANSWER));
+  assert.deepEqual(cleaned, []);
+  assert.equal(values[idOf(warm, 'Full Address')], 'Badstraße 115, 71336 Waiblingen, Deutschland');
+  assert.doesNotMatch(values[idOf(warm, 'Comments')].text, /note removed/);
 });

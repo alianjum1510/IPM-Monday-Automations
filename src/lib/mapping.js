@@ -7,6 +7,7 @@
  * deployment serve both. A column that does not exist on the board is skipped.
  */
 import { matchTaxonomyItem } from './taxonomy.js';
+import { REMOVED_REMARKS } from './parse.js';
 
 /**
  * The email now goes to "Company Email", not "Email".
@@ -163,6 +164,7 @@ const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
  * @returns {{values: Record<string, unknown>, filled: string[], skipped: string[],
  *            unmatched: Array<{title: string, value: string}>,
  *            linked: Array<{title: string, name: string, id: string}>,
+ *            cleaned: string[],
  *            ambiguous: Array<{title: string, name: string, ids: string[]}>}}
  */
 export function buildColumnValues(columns, fields, relations = {}) {
@@ -245,7 +247,14 @@ export function buildColumnValues(columns, fields, relations = {}) {
     values[notesColumn.id] = formatValue(notesColumn, composeNotes(fields, unmatched), fields, notesEntry);
   }
 
-  return { values, filled, skipped, unmatched, linked, ambiguous };
+  // The name and address columns a remark was cut out of, for the run log.
+  const cleaned = [...new Set((fields[REMOVED_REMARKS] || []).map((entry) => titleOfField(entry.key)))];
+
+  return { values, filled, skipped, unmatched, linked, ambiguous, cleaned };
+}
+
+function titleOfField(key) {
+  return COLUMN_PLAN.find((entry) => entry.field === key)?.title || key;
 }
 
 /** Returns the monday-shaped value, or undefined when there is nothing to write. */
@@ -434,6 +443,12 @@ function composeNotes(fields, unmatched = []) {
   // Researched, but the column's options had no home for it.
   for (const entry of unmatched) {
     lines.push(`${entry.title} (no matching option): ${entry.value}`);
+  }
+
+  // Remarks the model attached to the name or address - kept out of those
+  // cells, but not thrown away.
+  for (const entry of fields[REMOVED_REMARKS] || []) {
+    lines.push(`${titleOfField(entry.key)} (note removed): ${entry.text}`);
   }
 
   if (fields.NOTES) lines.push('', fields.NOTES);

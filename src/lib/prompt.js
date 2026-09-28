@@ -118,7 +118,11 @@ NOTES: [Important findings from cross-checking data, verification process detail
 EXTRA FIELDS (these go into their own board columns - continue the same
 KEY: value format, one per line, immediately after NOTES). Use the verified
 address from CORRECT_ADDRESS when splitting the address parts. If a value
-cannot be verified, write exactly "Not found":
+cannot be verified, write exactly "Not found".
+CORRECT_NAME, CORRECT_ADDRESS and every address field below must contain the
+value ONLY - no sources, brackets, confidence levels, explanations, alternatives
+or remarks, and nothing on the following line. Anything you want to say about
+the name or address belongs in NOTES:
 
 ADDRESS_LINE_1: [street and number]
 ADDRESS_LINE_2: [suite, building, c/o - or "Not found"]

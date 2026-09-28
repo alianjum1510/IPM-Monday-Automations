@@ -81,7 +81,7 @@ export async function enrichItem(boardId, itemId) {
     throw new Error(`no parsable fields in the model output for item ${itemId}`);
   }
 
-  const { values, filled, skipped, unmatched, linked, ambiguous } = buildColumnValues(
+  const { values, filled, skipped, unmatched, linked, ambiguous, cleaned } = buildColumnValues(
     board.columns,
     fields,
     relations,
@@ -119,6 +119,8 @@ export async function enrichItem(boardId, itemId) {
         ? ` no matching option: ${unmatched.map((e) => `${e.title}="${e.value}"`).join(', ')}`
         : '') +
       // The relations feed Initial Lead Score, so the run says what they landed on.
+      // The model annotated the name or address; the note went to Comments.
+      (cleaned.length ? ` notes removed from: ${cleaned.join(', ')}` : '') +
       (linked.length ? ` linked: ${linked.map((e) => `${e.title}="${e.name}"`).join(', ')}` : '') +
       // Two taxonomy items share a name and they may carry different scores.
       (ambiguous.length

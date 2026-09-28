@@ -162,6 +162,25 @@ The two taxonomies are read once per container and cached for
 `TAXONOMY_TTL_MS` (default 10 minutes), so a newly added industry becomes
 matchable without a redeploy and a run normally spends no extra queries on them.
 
+**7. The company name and address hold the value only — no AI notes.**
+The model annotated what it found: `Muster GmbH (verified on handelsregister.de)`,
+`Badstraße 1, 12345 Berlin — Hauptsitz; formerly Hauptstraße 3`, or a sentence
+on the next line. The prompt now says those fields take the value only, and
+[parse.js](src/lib/parse.js) enforces it on `CORRECT_NAME`, `CORRECT_ADDRESS`
+and every address part, whatever the model does:
+
+- bracketed remarks, a tail after `—` / `;` / `|`, a comma segment or sentence
+  that talks *about* the value, and any line after the field are cut off;
+- a value that still carries a URL, an email, a question, English prose or more
+  text than the field needs is not written at all — the cell gets `N/A`;
+- nothing is lost: every cut goes to **Comments** as
+  `<Column> (note removed): <text>`, and the run log says
+  `notes removed from: …`.
+
+The name is handled more gently, because `Muster (Deutschland) GmbH` and
+`Rhein - Main Bau GmbH` are real names: a bracket or dash is only cut from it
+when it reads as a remark or comes after the legal form.
+
 ## What gets written
 
 29 columns, from the prompt's output block plus the `EXTRA FIELDS` section that

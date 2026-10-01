@@ -479,3 +479,14 @@ test('a clean answer removes nothing', () => {
   assert.equal(values[idOf(warm, 'Full Address')], 'Badstraße 115, 71336 Waiblingen, Deutschland');
   assert.doesNotMatch(values[idOf(warm, 'Comments')].text, /note removed/);
 });
+
+test('the search is scoped to the country the user entered', async () => {
+  const { buildPrompt } = await import('../src/lib/prompt.js');
+
+  const withCountry = buildPrompt('Muster GmbH', 'Ringstraße 1, 1010 Wien, Austria', {}, 'Austria');
+  assert.match(withCountry, /Country: Austria\n/);
+  assert.match(withCountry, /Restrict every search to that country/);
+
+  const withoutCountry = buildPrompt('Muster GmbH', 'Badstraße 115, 71336 Waiblingen');
+  assert.match(withoutCountry, /Country: not identified - determine it from the address above/);
+});

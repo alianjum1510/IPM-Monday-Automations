@@ -60,6 +60,45 @@ export async function research(prompt) {
   }
 }
 
+/**
+ * Which country an address is in, as an ISO code, or '' when the model cannot
+ * tell. For the addresses countryFromInput() could not place - no country name,
+ * no postal prefix - so the city, postal code format and region decide it.
+ *
+ * One short answer and no web search: this runs before the research, on every
+ * such lead, and must not cost what the research costs. A failure here never
+ * fails the run - the research is then told to work the country out itself.
+ */
+export async function classifyCountry(address) {
+  try {
+    const { data } = await axios.post(
+      RESPONSES_URL,
+      {
+        model: env.openai.countryModel || env.openai.model,
+        input:
+          'Which country is this address in? Use its unique identifiers - the city, the ' +
+          'postal code format, the street naming, the state or region.\n\n' +
+          `Address: ${address}\n\n` +
+          'Reply with only the ISO 3166-1 alpha-2 code (e.g. DE), or UNKNOWN if the ' +
+          'address does not identify one country.',
+      },
+      {
+        timeout: 30000,
+        headers: {
+          Authorization: `Bearer ${env.openai.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    const code = extractText(data).trim().toUpperCase().match(/\b[A-Z]{2}\b/)?.[0] || '';
+    return code === 'UN' ? '' : code;
+  } catch (error) {
+    log(`OpenAI: country classification failed (${error.response?.status || error.message}) - research will determine it`);
+    return '';
+  }
+}
+
 function extractText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text;
 

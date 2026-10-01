@@ -14,8 +14,13 @@
  * text answer would almost never match, so the exact list is handed to the model
  * and it is asked to echo one line back verbatim. Nothing is ever created on a
  * taxonomy board, so a value outside the list is reported, not invented.
+ *
+ * `country` is the country the lead was classified into from its address
+ * before this prompt is built (see lib/country.js). The search is scoped to it
+ * before the name is looked up, so a same-named company abroad cannot be picked
+ * up instead.
  */
-export function buildPrompt(companyName, address, choices = {}) {
+export function buildPrompt(companyName, address, choices = {}, country = '') {
   return `Search and classify this German company with VERY IN-DEPTH research.
 
 CRITICAL INSTRUCTION: You MUST perform AT LEAST 15-20 web searches before providing your final answer. Search multiple sources for each piece of information, especially for VAT number and HRB registration number. Do NOT provide an answer until you have completed thorough research across all available sources.
@@ -25,6 +30,10 @@ Input (may contain errors):
 Company: ${companyName}
 
 Address: ${address}
+
+Country: ${country || 'not identified - determine it from the address above'}
+
+SEARCH SCOPE: The Country line above was classified from the address before this research. Treat it as the country the company is located in and search for the company name only inside it. Restrict every search to that country: include the country in your queries, use that country's official company register, and ignore same-named companies in other countries. If the country is not Germany, use that country's equivalent register and VAT number format wherever the instructions below name German ones. Only if the Country line is not identified and the address gives no country, assume Germany.
 
 Tasks
 

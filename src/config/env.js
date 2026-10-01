@@ -17,6 +17,8 @@ export const env = {
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     model: process.env.OPENAI_MODEL || 'gpt-4o',
+    /** Optional cheaper model for the one-word country classification; defaults to `model`. */
+    countryModel: process.env.OPENAI_COUNTRY_MODEL || '',
     timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS) || 240000,
   },
 

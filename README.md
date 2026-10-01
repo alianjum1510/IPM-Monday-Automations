@@ -181,6 +181,26 @@ The name is handled more gently, because `Muster (Deutschland) GmbH` and
 `Rhein - Main Bau GmbH` are real names: a bracket or dash is only cut from it
 when it reads as a remark or comes after the legal form.
 
+**8. The country is classified from the address first, then the search stays inside it.**
+Before the research, [country.js](src/lib/country.js) settles the lead's country
+from what the user entered, in this order:
+
+| Step | Signal | Example |
+| --- | --- | --- |
+| 1 | the `Country` column | `Germany`, `Österreich`, `CH` |
+| 2 | a country name in the address, in any common European language | `…, 1010 Wien, Österreich` |
+| 3 | a postal prefix | `D-71336`, `A-1010`, `CH-8000` |
+| 4 | a short OpenAI call on the address alone (no web search), placing it by city, postal code format and region | `Badstraße 115, 71336 Waiblingen` → `DE` |
+
+The research prompt then gets that country and is told to look for the company
+**only inside it** — that country's register, results and VAT format — so a
+same-named company abroad cannot be picked up instead. A country word inside a
+street (`Schweizer Straße`) never classifies a lead; only a whole address
+segment or the words the address ends on do. If step 4 fails or answers
+`UNKNOWN`, the research works the country out itself, and Germany is assumed
+only when nothing names one. The run log shows
+`(country: Austria from postal prefix in address)`.
+
 ## What gets written
 
 29 columns, from the prompt's output block plus the `EXTRA FIELDS` section that
@@ -223,6 +243,7 @@ Set on the **app** (11727119), not the version, so a redeploy inherits them:
 | `DEFAULT_BOARD_ID` | fallback when the payload carries no board id |
 | `BOARD_ITEM_DELAY_MS` | pause before the write, to stay under the API's complexity budget |
 | `LIFECYCLE_STAGE_SOURCES` | optional, comma-separated: the stages enrichment may move a lead off (default `Inbound,Data authentication required`) |
+| `OPENAI_COUNTRY_MODEL` | optional: a cheaper model for the one-word country classification (defaults to `OPENAI_MODEL`) |
 | `TAXONOMY_TTL_MS` | optional: how long the Industry / Job Function taxonomies are cached (default 600000) |
 
 ```bash

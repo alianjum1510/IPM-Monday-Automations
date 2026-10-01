@@ -12,7 +12,8 @@ import {
 } from '../lib/mapping.js';
 import { loadRelationTaxonomies, taxonomyChoices } from '../lib/taxonomy.js';
 import { getBoard, getItem, writeColumns } from './monday.js';
-import { research } from './openai.js';
+import { classifyCountry, research } from './openai.js';
+import { countryCode, countryFromInput, countryName } from '../lib/country.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -57,7 +58,12 @@ export async function enrichItem(boardId, itemId) {
     return { success: true, boardId: String(boardId), itemId: String(itemId), enriched: false };
   }
 
-  log(`Item ${itemId}: enriching "${companyName}" / "${address}"`);
+  const country = await classifyLeadCountry(text.Country, address);
+
+  log(
+    `Item ${itemId}: enriching "${companyName}" / "${address}" ` +
+      `(country: ${country ? `${country.name} from ${country.source}` : 'unclassified'})`,
+  );
 
   /**
    * Industry and Job Function are board_relation columns, so their vocabulary
@@ -73,7 +79,7 @@ export async function enrichItem(boardId, itemId) {
   };
 
   const { text: answer, searched, searchCount } = await research(
-    buildPrompt(companyName, address, choices),
+    buildPrompt(companyName, address, choices, country?.name),
   );
   const fields = parseEnrichment(answer);
 
@@ -192,6 +198,23 @@ function describeStageWrite(columns, values, dropped, held = '') {
 
   const written = statusLabels(column).find((entry) => entry.index === value.index);
   return `"${written?.label ?? value.index}"`;
+}
+
+/**
+ * The country the research is scoped to, settled BEFORE the research runs.
+ *
+ * What the user entered decides it when it can - the Country column, a country
+ * name or a postal prefix in the address. Only an address that names no country
+ * goes to the model, which places it by its city, postal code and region.
+ *
+ * @returns {Promise<{code: string, name: string, source: string}|null>}
+ */
+async function classifyLeadCountry(countryColumn, address) {
+  const fromInput = countryFromInput(countryColumn, address);
+  if (fromInput || !address) return fromInput;
+
+  const code = countryCode(await classifyCountry(address));
+  return code ? { code, name: countryName(code), source: 'address (city / postal code)' } : null;
 }
 
 /**

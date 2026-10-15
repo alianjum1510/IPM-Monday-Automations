@@ -376,7 +376,11 @@ test('a dropdown option is never invented, and the value survives in Comments', 
   assert.equal(values[idOf(board, 'Estimated Annual Revenue')], undefined);
   assert.ok(skipped.includes('Estimated Annual Revenue'));
   assert.ok(!filled.includes('Estimated Annual Revenue'), 'no N/A option to fall back on');
-  assert.deepEqual(unmatched, [{ title: 'Estimated Annual Revenue', value: '1B+ EUR' }]);
+  // The fixture's other dropdowns have no options either, so they report too.
+  assert.deepEqual(
+    unmatched.filter((entry) => entry.title === 'Estimated Annual Revenue'),
+    [{ title: 'Estimated Annual Revenue', value: '1B+ EUR' }],
+  );
   assert.match(
     values[idOf(board, 'Comments')].text,
     /Estimated Annual Revenue \(no matching option\): 1B\+ EUR/,

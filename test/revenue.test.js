@@ -129,7 +129,7 @@ test('the figure decides the band, over the band the model picked', () => {
 
   assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [3] }, '10M-50M EUR');
   assert.equal(banded[0].label, '10M-50M EUR');
-  assert.deepEqual(unmatched, []);
+  assert.ok(!unmatched.some((entry) => entry.title === 'Estimated Annual Revenue'), 'placed, not unmatched');
   assert.match(
     values[idOf(board, 'Comments')].text,
     /Estimated Annual Revenue figure: EUR 30,000,000 \(2024\) - 30M EUR -> 10M-50M EUR/,

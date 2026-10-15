@@ -10,6 +10,7 @@ import { parseEnrichment } from '../src/lib/parse.js';
 import {
   buildColumnValues,
   mayAdvanceStage,
+  optionChoices,
   NA_TEXT,
   LIFECYCLE_STAGE_ENRICHED,
   LIFECYCLE_STAGE_TITLE,
@@ -21,6 +22,21 @@ const cold = boards.find((b) => b.id === '5100463291');
 
 const titleOf = (board, id) => board.columns.find((c) => c.id === id)?.title;
 const idOf = (board, title) => board.columns.find((c) => c.title === title)?.id;
+
+/** The dropdown shape of settings_str, which differs from status. */
+const withDropdownLabels = (board, title, names) => ({
+  ...board,
+  columns: board.columns.map((column) =>
+    column.title === title
+      ? {
+          ...column,
+          settings_str: JSON.stringify({
+            labels: names.map((name, i) => ({ id: i + 1, name })),
+          }),
+        }
+      : column,
+  ),
+});
 
 const FULL_ANSWER = `
 CORRECT_NAME: ANDREAS STIHL AG & Co. KG
@@ -74,7 +90,8 @@ test('the email lands in Company Email, never in Email', () => {
 });
 
 test('typed columns get monday-shaped values', () => {
-  const { values } = buildColumnValues(warm.columns, parseEnrichment(FULL_ANSWER));
+  const board = withDropdownLabels(warm, 'Phone Type', ['Landline', 'Mobile', 'VoIP']);
+  const { values } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
   assert.equal(values[idOf(warm, 'Company / Customer Name')], 'ANDREAS STIHL AG & Co. KG');
   assert.equal(values[idOf(warm, 'Registration Number')], 'HRA 260269');
@@ -83,7 +100,7 @@ test('typed columns get monday-shaped values', () => {
   assert.deepEqual(values[idOf(warm, 'Main Phone')], { phone: '+497151260', countryShortName: 'DE' });
   assert.deepEqual(values[idOf(warm, 'Website')], { url: 'https://www.stihl.de', text: 'www.stihl.de' });
   assert.equal(values[idOf(warm, 'Company Size')], '20000', 'thousands separator stripped');
-  assert.deepEqual(values[idOf(warm, 'Phone Type')], { labels: ['Landline'] });
+  assert.deepEqual(values[idOf(warm, 'Phone Type')], { ids: [1] }, 'by id, never a label string');
 });
 
 test('the VAT number and confidences survive in Comments', () => {
@@ -96,7 +113,7 @@ test('the VAT number and confidences survive in Comments', () => {
   assert.match(comments, /21 searches performed/);
 });
 
-test('empty text and dropdown columns are filled with N/A', () => {
+test('empty text columns, and dropdowns that offer it, are filled with N/A', () => {
   const sparse = parseEnrichment(`
 CORRECT_NAME: Kleine Firma GmbH
 REGISTRATION_NUMBER: Not found after extensive search
@@ -108,12 +125,13 @@ COMPANY_SIZE: Not found
 OWNERSHIP_TYPE: Not found
 `);
 
-  const { values, filled, skipped } = buildColumnValues(warm.columns, sparse);
+  const board = withDropdownLabels(warm, 'Ownership Type', ['Private', 'Public', NA_TEXT]);
+  const { values, filled, skipped } = buildColumnValues(board.columns, sparse);
 
   assert.equal(values[idOf(warm, 'Registration Number')], NA_TEXT);
   assert.equal(values[idOf(warm, 'Address Line 1')], NA_TEXT);
   assert.equal(values[idOf(warm, 'District')], NA_TEXT);
-  assert.deepEqual(values[idOf(warm, 'Ownership Type')], { labels: [NA_TEXT] });
+  assert.deepEqual(values[idOf(warm, 'Ownership Type')], { ids: [3] }, 'the existing N/A option');
   assert.equal(values[idOf(warm, 'City')], 'Berlin', 'a real value is not overwritten with N/A');
 
   // The columns that sat blank in the board screenshot.
@@ -285,22 +303,11 @@ test('the stage moves for a sparse answer too', () => {
   assert.deepEqual(values[idOf(board, LIFECYCLE_STAGE_TITLE)], { index: 1 });
 });
 
-/** The dropdown shape of settings_str, which differs from status. */
-const withDropdownLabels = (board, title, names) => ({
-  ...board,
-  columns: board.columns.map((column) =>
-    column.title === title
-      ? {
-          ...column,
-          settings_str: JSON.stringify({
-            labels: names.map((name, i) => ({ id: i + 1, name })),
-          }),
-        }
-      : column,
-  ),
-});
-
 const DIALLING_CODES = ['+1', '+20', '+212', '+213', '+216', '+43', '+49', '+92'];
+const optionId = (code) => DIALLING_CODES.indexOf(code) + 1;
+
+/** Estimated Annual Revenue as it stands on the warm board. */
+const REVENUE_BANDS = ['< 1M EUR', '1M-10M EUR', '10M-50M EUR', '50M-100M EUR', '100M-500M EUR', '500M+ EUR'];
 
 test('web_search citations are stripped from the data fields', () => {
   const fields = parseEnrichment(`
@@ -332,7 +339,7 @@ test('Country Code gets the dialling code, taken from the phone number', () => {
   const board = withDropdownLabels(warm, 'Country Code', DIALLING_CODES);
   const { values } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
-  assert.deepEqual(values[idOf(board, 'Country Code')], { labels: ['+49'] });
+  assert.deepEqual(values[idOf(board, 'Country Code')], { ids: [optionId('+49')] });
 });
 
 test('a longer dialling code is not swallowed by a shorter one', () => {
@@ -340,14 +347,14 @@ test('a longer dialling code is not swallowed by a shorter one', () => {
   const fields = parseEnrichment('COUNTRY: Morocco\nCOUNTRY_CODE: MA\nMAIN_PHONE: +212 522 123456');
 
   const { values } = buildColumnValues(board.columns, fields);
-  assert.deepEqual(values[idOf(board, 'Country Code')], { labels: ['+212'] }, 'not +21 or +2');
+  assert.deepEqual(values[idOf(board, 'Country Code')], { ids: [optionId('+212')] }, 'not +21 or +2');
 });
 
 test('with no phone at all the dialling code comes from the ISO code', () => {
   const board = withDropdownLabels(warm, 'Country Code', DIALLING_CODES);
   const { values } = buildColumnValues(board.columns, parseEnrichment('COUNTRY_CODE: DE'));
 
-  assert.deepEqual(values[idOf(board, 'Country Code')], { labels: ['+49'] });
+  assert.deepEqual(values[idOf(board, 'Country Code')], { ids: [optionId('+49')] });
 });
 
 test('the ISO code still goes to the country column', () => {
@@ -363,10 +370,12 @@ test('a dropdown option is never invented, and the value survives in Comments', 
     'Estimated Annual Revenue',
     ['0-1M EUR', '1M-10M EUR'],
   );
-  const { values, unmatched } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
+  const { values, unmatched, filled, skipped } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
-  // "1B+ EUR" is not on the list - N/A, not a new option.
-  assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { labels: [NA_TEXT] });
+  // "1B+ EUR" is not on the list, and neither is N/A - the cell is left alone.
+  assert.equal(values[idOf(board, 'Estimated Annual Revenue')], undefined);
+  assert.ok(skipped.includes('Estimated Annual Revenue'));
+  assert.ok(!filled.includes('Estimated Annual Revenue'), 'no N/A option to fall back on');
   assert.deepEqual(unmatched, [{ title: 'Estimated Annual Revenue', value: '1B+ EUR' }]);
   assert.match(
     values[idOf(board, 'Comments')].text,
@@ -374,11 +383,76 @@ test('a dropdown option is never invented, and the value survives in Comments', 
   );
 });
 
-test('a dropdown with no list of its own still takes free text', () => {
-  // boards.json has no settings_str, so every dropdown is unconstrained.
-  const { values } = buildColumnValues(warm.columns, parseEnrichment(FULL_ANSWER));
+test('an unmatched dropdown falls back to N/A only when N/A is one of its options', () => {
+  const board = withDropdownLabels(warm, 'Estimated Annual Revenue', [...REVENUE_BANDS, NA_TEXT]);
+  const { values, filled } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
-  assert.deepEqual(values[idOf(warm, 'Phone Type')], { labels: ['Landline'] });
+  assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [REVENUE_BANDS.length + 1] });
+  assert.ok(filled.includes('Estimated Annual Revenue'));
+});
+
+test('the board\'s own revenue bands are matched, symbols and all', () => {
+  const board = withDropdownLabels(warm, 'Estimated Annual Revenue', REVENUE_BANDS);
+  const id = idOf(board, 'Estimated Annual Revenue');
+
+  for (const [answer, band] of [['10M-50M EUR', 3], ['< 1M EUR', 1], ['500M+ EUR', 6], ['"1M-10M EUR"', 2]]) {
+    const { values } = buildColumnValues(board.columns, parseEnrichment(`ESTIMATED_ANNUAL_REVENUE: ${answer}`));
+    assert.deepEqual(values[id], { ids: [band] }, answer);
+  }
+});
+
+test('a dropdown with no options of its own is left empty, never free text', () => {
+  // boards.json has no settings_str, so no dropdown has a readable list.
+  const { values, unmatched } = buildColumnValues(warm.columns, parseEnrichment(FULL_ANSWER));
+
+  for (const title of ['Phone Type', 'Estimated Annual Revenue', 'Company Structure', 'Ownership Type']) {
+    assert.equal(values[idOf(warm, title)], undefined, `${title} must not be written`);
+  }
+  assert.ok(unmatched.some((entry) => entry.title === 'Phone Type' && entry.value === 'Landline'));
+});
+
+test('a deactivated dropdown option is not written', () => {
+  const board = {
+    ...warm,
+    columns: warm.columns.map((column) =>
+      column.title === 'Phone Type'
+        ? {
+            ...column,
+            settings_str: JSON.stringify({
+              labels: [{ id: 1, name: 'Landline' }, { id: 2, name: 'Mobile' }],
+              deactivated_labels: [1],
+            }),
+          }
+        : column,
+    ),
+  };
+  const { values } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
+
+  assert.equal(values[idOf(board, 'Phone Type')], undefined);
+  assert.deepEqual(optionChoices(board.columns).PHONE_TYPE, ['Mobile']);
+});
+
+test('the prompt offers the dropdowns\' own options and nothing else', async () => {
+  const { buildPrompt } = await import('../src/lib/prompt.js');
+  const board = withDropdownLabels(
+    withDropdownLabels(warm, 'Estimated Annual Revenue', [...REVENUE_BANDS, NA_TEXT]),
+    'Country Code',
+    DIALLING_CODES,
+  );
+  const options = optionChoices(board.columns);
+
+  assert.deepEqual(options.ESTIMATED_ANNUAL_REVENUE, REVENUE_BANDS, 'N/A comes from "Not found", not a choice');
+  assert.equal(options.COUNTRY_CODE, undefined, 'derived from the phone number, never asked for');
+
+  const prompt = buildPrompt('Muster GmbH', 'Badstraße 115, 71336 Waiblingen', { options });
+  assert.match(prompt, /ESTIMATED_ANNUAL_REVENUE: \[choose ONE of: "< 1M EUR" \| "1M-10M EUR"/);
+  assert.match(prompt, /DROPDOWN FIELDS: ESTIMATED_ANNUAL_REVENUE fill fixed dropdowns/);
+  assert.doesNotMatch(prompt, /revenue band, e\.g\./);
+
+  // A board whose options could not be read keeps the old hints.
+  const plain = buildPrompt('Muster GmbH', 'Badstraße 115, 71336 Waiblingen');
+  assert.match(plain, /ESTIMATED_ANNUAL_REVENUE: \[revenue band, e\.g\. "1M-10M EUR"\]/);
+  assert.doesNotMatch(plain, /DROPDOWN FIELDS/);
 });
 
 test('every planned column exists on at least one board', () => {

@@ -15,6 +15,10 @@
  * and it is asked to echo one line back verbatim. Nothing is ever created on a
  * taxonomy board, so a value outside the list is reported, not invented.
  *
+ * `choices.options` carries the labels of the board's dropdown columns, keyed
+ * by research field (see optionChoices in lib/mapping.js), so the model picks
+ * one of the board's own options instead of wording its own.
+ *
  * `country` is the country the lead was classified into from its address
  * before this prompt is built (see lib/country.js). The search is scoped to it
  * before the name is looked up, so a same-named company abroad cannot be picked
@@ -146,13 +150,43 @@ COMPANY_EMAIL: [general company email address from the Impressum or contact page
 MAIN_PHONE: [main switchboard number in international format, e.g. +49 30 1234567]
 MOBILE_NUMBER: [mobile number in international format]
 FAX: [fax number in international format]
-PHONE_TYPE: [Landline, Mobile, or VoIP]
+PHONE_TYPE: ${optionHint(choices, 'PHONE_TYPE', 'Landline, Mobile, or VoIP')}
 CONTACT_NAME: [managing director / primary named contact]
 COMPANY_SIZE: [employee count as a plain integer, no ranges, no text]
-ESTIMATED_ANNUAL_REVENUE: [revenue band, e.g. "1M-10M EUR"]
-COMPANY_STRUCTURE: [legal form, e.g. GmbH, AG, e.K., GmbH & Co. KG]
-OWNERSHIP_TYPE: [Private, Public, Government, Municipality, Non-profit]
-D_AND_B_NUMBER: [D-U-N-S number, digits only]${classificationBlock(choices)}`;
+ANNUAL_REVENUE_FIGURE: [latest annual revenue found, as currency code and full amount with the year in brackets, e.g. "EUR 30,000,000 (2024)" - or "Not found"]
+ESTIMATED_ANNUAL_REVENUE: ${optionHint(choices, 'ESTIMATED_ANNUAL_REVENUE', 'revenue band, e.g. "1M-10M EUR"')}
+COMPANY_STRUCTURE: ${optionHint(choices, 'COMPANY_STRUCTURE', 'legal form, e.g. GmbH, AG, e.K., GmbH & Co. KG')}
+OWNERSHIP_TYPE: ${optionHint(choices, 'OWNERSHIP_TYPE', 'Private, Public, Government, Municipality, Non-profit')}
+D_AND_B_NUMBER: [D-U-N-S number, digits only]${optionRules(choices)}${classificationBlock(choices)}`;
+}
+
+/**
+ * The placeholder for a dropdown field: the board's own options when they were
+ * readable, the old free-text hint otherwise.
+ *
+ * Those four columns are dropdowns, and only an option the column already has
+ * is ever written - the model's own wording ("€25M", "Privately held") was
+ * reported as unmatched and the cell fell back to N/A. Listing the exact labels
+ * is what lets a researched answer actually land.
+ */
+function optionHint(choices, field, fallback) {
+  const options = choices.options?.[field];
+  if (!options?.length) return `[${fallback}]`;
+  return `[choose ONE of: ${options.map((option) => `"${option}"`).join(' | ')} - or "Not found"]`;
+}
+
+/** The rule for the dropdown fields, only when at least one list was readable. */
+function optionRules(choices) {
+  const fields = Object.keys(choices.options || {});
+  if (!fields.length) return '';
+
+  return `
+
+DROPDOWN FIELDS: ${fields.join(', ')} fill fixed dropdowns on the board. For
+each of them, copy ONE of the listed options exactly as written, without the
+quotes. Do NOT reword, translate, combine or invent a value. Pick the option the
+research supports (for a revenue band, the band the figure falls into); if no
+option genuinely fits or the value cannot be verified, write exactly "Not found".`;
 }
 
 /**

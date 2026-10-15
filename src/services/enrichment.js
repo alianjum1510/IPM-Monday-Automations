@@ -5,6 +5,7 @@ import { parseEnrichment } from '../lib/parse.js';
 import {
   buildColumnValues,
   mayAdvanceStage,
+  optionChoices,
   statusLabels,
   LIFECYCLE_STAGE_ENRICHED,
   LIFECYCLE_STAGE_SOURCES,
@@ -13,6 +14,7 @@ import {
 import { loadRelationTaxonomies, taxonomyChoices } from '../lib/taxonomy.js';
 import { getBoard, getItem, writeColumns } from './monday.js';
 import { classifyCountry, research } from './openai.js';
+import { getRates } from './fx.js';
 import { countryCode, countryFromInput, countryName } from '../lib/country.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,6 +78,9 @@ export async function enrichItem(boardId, itemId) {
   const choices = {
     industries: taxonomyChoices(relations, board.columns, 'Industry'),
     jobFunctions: taxonomyChoices(relations, board.columns, 'Job Function'),
+    // The dropdowns' own options, already on the board read above - the model
+    // picks from these, and nothing outside them is ever written.
+    options: optionChoices(board.columns),
   };
 
   const { text: answer, searched, searchCount } = await research(
@@ -87,10 +92,14 @@ export async function enrichItem(boardId, itemId) {
     throw new Error(`no parsable fields in the model output for item ${itemId}`);
   }
 
-  const { values, filled, skipped, unmatched, linked, ambiguous, cleaned } = buildColumnValues(
+  // Only fetched when there is a revenue figure to convert - cached for hours anyway.
+  const fx = fields.ANNUAL_REVENUE_FIGURE ? await getRates() : null;
+
+  const { values, filled, skipped, unmatched, linked, ambiguous, cleaned, banded } = buildColumnValues(
     board.columns,
     fields,
     relations,
+    fx,
   );
 
   if (env.boardItemDelayMs) await sleep(env.boardItemDelayMs);
@@ -127,6 +136,12 @@ export async function enrichItem(boardId, itemId) {
       // The relations feed Initial Lead Score, so the run says what they landed on.
       // The model annotated the name or address; the note went to Comments.
       (cleaned.length ? ` notes removed from: ${cleaned.join(', ')}` : '') +
+      // Where the revenue figure landed, or why it fell back to the model's band.
+      (banded.length
+        ? ` banded: ${banded
+            .map((e) => `${e.title}="${e.figure}" -> ${e.label ? `"${e.label}"` : `not placed (${e.reason})`}`)
+            .join(', ')}`
+        : '') +
       (linked.length ? ` linked: ${linked.map((e) => `${e.title}="${e.name}"`).join(', ')}` : '') +
       // Two taxonomy items share a name and they may carry different scores.
       (ambiguous.length

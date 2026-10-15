@@ -22,6 +22,12 @@ export const env = {
     timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS) || 240000,
   },
 
+  /** ECB exchange rates for placing a revenue figure into the board's bands. */
+  fx: {
+    url: process.env.FX_RATES_URL || 'https://api.frankfurter.app/latest?from=EUR',
+    ttlMs: Number(process.env.FX_TTL_MS) || 12 * 60 * 60 * 1000,
+  },
+
   /** Used only when the block payload carries no board id. */
   defaultBoardId: process.env.DEFAULT_BOARD_ID || '',
 

@@ -8,6 +8,7 @@
  */
 import { matchTaxonomyItem } from './taxonomy.js';
 import { REMOVED_REMARKS } from './parse.js';
+import { bandForFigure, formatAmount } from './revenue.js';
 
 /**
  * The email now goes to "Company Email", not "Email".
@@ -109,7 +110,13 @@ export const COLUMN_PLAN = [
   { title: 'Fax', field: 'FAX' },
   { title: 'Phone Type', field: 'PHONE_TYPE' },
   { title: 'Company Size', field: 'COMPANY_SIZE' },
-  { title: 'Estimated Annual Revenue', field: 'ESTIMATED_ANNUAL_REVENUE' },
+  /**
+   * `figureField` is the raw revenue the research found ("EUR 30,000,000"). It
+   * is placed into the column's bands by arithmetic (lib/revenue.js), converted
+   * into the bands' currency first; the band the model picked is only used when
+   * there is no figure or it cannot be placed.
+   */
+  { title: 'Estimated Annual Revenue', field: 'ESTIMATED_ANNUAL_REVENUE', figureField: 'ANNUAL_REVENUE_FIGURE' },
   { title: 'Company Structure', field: 'COMPANY_STRUCTURE' },
   { title: 'Ownership Type', field: 'OWNERSHIP_TYPE', fallbackField: 'CLASSIFICATION' },
   /**
@@ -131,6 +138,10 @@ export const COLUMN_PLAN = [
  * written into it and the cell reads N/A instead of sitting blank - that is
  * what puts N/A in LinkedIn Profile, Website and Mobile Number.
  *
+ * A dropdown only gets N/A when "N/A" is already one of its options. Writing
+ * `{labels: ["N/A"]}` used to create that option on any dropdown that lacked
+ * it, which is exactly the kind of invented option this app must not make.
+ *
  * Number, date and country columns are the exception: monday parses those into
  * a numeric or ISO value and has nowhere to keep the string "N/A". They stay
  * empty. Nothing here can break a write - change_multiple_column_values is
@@ -142,11 +153,50 @@ export const NA_TEXT = 'N/A';
 const NA_BY_TYPE = {
   text: () => NA_TEXT,
   long_text: () => ({ text: NA_TEXT }),
-  dropdown: () => ({ labels: [NA_TEXT] }),
   link: () => ({ url: NA_TEXT, text: NA_TEXT }),
   email: () => ({ email: NA_TEXT, text: NA_TEXT }),
   phone: () => ({ phone: NA_TEXT, countryShortName: '' }),
 };
+
+function naValueFor(column) {
+  if (column.type === 'dropdown') {
+    const option = findStatusLabel(column, NA_TEXT);
+    return option ? { ids: [option.index] } : undefined;
+  }
+  return NA_BY_TYPE[column.type]?.();
+}
+
+/**
+ * The options the model is shown for each controlled column, keyed by the
+ * research field that feeds it.
+ *
+ * Without the list the model answered from its own vocabulary ("€25M",
+ * "Privately held") and almost nothing matched the board's options, so the
+ * column fell back to N/A. Handing it the board's exact labels is the same fix
+ * the Industry / Job Function taxonomies got. Columns with a fixed or derived
+ * value (Lifecycle Stage, Country Code) are not asked for, and "N/A" itself is
+ * left out - "Not found" already produces it.
+ *
+ * @returns {Record<string, string[]>}
+ */
+export function optionChoices(columns) {
+  const choices = {};
+
+  for (const entry of COLUMN_PLAN) {
+    if (!entry.field || entry.constant !== undefined || entry.derive) continue;
+
+    const column = columns.find((candidate) => candidate.title === entry.title);
+    if (!column || (column.type !== 'dropdown' && column.type !== 'status')) continue;
+
+    const labels = statusLabels(column)
+      .map((option) => option.label.trim())
+      .filter((label) => normalise(label) !== normalise(NA_TEXT));
+
+    if (labels.length) choices[entry.field] = [...new Set(labels)];
+  }
+
+  return choices;
+}
 
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
 
@@ -161,13 +211,18 @@ const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
  * from the researched string alone. Absent, those columns are skipped, so this
  * stays a pure function and the mapper remains synchronously testable.
  *
+ * `fx` is `{rates, date}` from services/fx.js, for converting a revenue figure
+ * into the currency of the board's bands. Absent, a figure in another currency
+ * cannot be placed and the band the model chose is used instead.
+ *
  * @returns {{values: Record<string, unknown>, filled: string[], skipped: string[],
  *            unmatched: Array<{title: string, value: string}>,
  *            linked: Array<{title: string, name: string, id: string}>,
  *            cleaned: string[],
- *            ambiguous: Array<{title: string, name: string, ids: string[]}>}}
+ *            ambiguous: Array<{title: string, name: string, ids: string[]}>,
+ *            banded: Array<{title: string, figure: string, label?: string, reason?: string}>}}
  */
-export function buildColumnValues(columns, fields, relations = {}) {
+export function buildColumnValues(columns, fields, relations = {}, fx = null) {
   const byTitle = new Map();
   for (const column of columns) {
     if (!byTitle.has(column.title)) byTitle.set(column.title, column);
@@ -179,6 +234,7 @@ export function buildColumnValues(columns, fields, relations = {}) {
   const unmatched = [];
   const linked = [];
   const ambiguous = [];
+  const banded = [];
 
   const notesEntry = COLUMN_PLAN.find((entry) => entry.field === '__NOTES__');
 
@@ -218,6 +274,24 @@ export function buildColumnValues(columns, fields, relations = {}) {
       continue;
     }
 
+    /**
+     * A researched figure is placed into the band that contains it, which text
+     * matching cannot do - "€30 million" spells no band. When it cannot be
+     * placed (no figure, no rate, no band covers it) the model's own band
+     * choice below still gets its chance.
+     */
+    const figure = entry.figureField ? String(fields[entry.figureField] || '').trim() : '';
+    if (figure && column.type === 'dropdown') {
+      const placed = bandForFigure(statusLabels(column), figure, fx?.rates) || {
+        reason: 'no amount could be read from it',
+      };
+      banded.push({ title: entry.title, figure, ...placed });
+      if (placed?.label) {
+        values[column.id] = { ids: [placed.index] };
+        continue;
+      }
+    }
+
     const formatted = formatValue(column, raw, fields, entry);
 
     if (formatted !== undefined) {
@@ -233,9 +307,9 @@ export function buildColumnValues(columns, fields, relations = {}) {
     }
 
     // Nothing usable for this column - say so in the cell where monday can hold it.
-    const naValue = NA_BY_TYPE[column.type];
-    if (naValue) {
-      values[column.id] = naValue();
+    const naValue = naValueFor(column);
+    if (naValue !== undefined) {
+      values[column.id] = naValue;
       filled.push(entry.title);
     } else {
       skipped.push(entry.title);
@@ -244,13 +318,30 @@ export function buildColumnValues(columns, fields, relations = {}) {
 
   const notesColumn = notesEntry && byTitle.get(notesEntry.title);
   if (notesColumn) {
-    values[notesColumn.id] = formatValue(notesColumn, composeNotes(fields, unmatched), fields, notesEntry);
+    values[notesColumn.id] = formatValue(
+      notesColumn,
+      composeNotes(fields, unmatched, banded, fx?.date),
+      fields,
+      notesEntry,
+    );
   }
 
   // The name and address columns a remark was cut out of, for the run log.
   const cleaned = [...new Set((fields[REMOVED_REMARKS] || []).map((entry) => titleOfField(entry.key)))];
 
-  return { values, filled, skipped, unmatched, linked, ambiguous, cleaned };
+  return { values, filled, skipped, unmatched, linked, ambiguous, cleaned, banded };
+}
+
+/** "32.4M USD at ECB rate of 2026-10-15 -> 30M-50M USD", or why it was not placed. */
+function describeBanding(entry, fxDate) {
+  if (!entry.label) return `not placed (${entry.reason})`;
+
+  const converted =
+    entry.from && entry.from !== entry.currency
+      ? `${formatAmount(entry.original, entry.from)} = ${formatAmount(entry.amount, entry.currency)}` +
+        ` at ECB rate${fxDate ? ` of ${fxDate}` : ''}`
+      : formatAmount(entry.amount, entry.currency);
+  return `${converted} -> ${entry.label}`;
 }
 
 function titleOfField(key) {
@@ -270,17 +361,17 @@ function formatValue(column, raw, fields, entry = {}) {
       return { text: value.slice(0, 2000) };
 
     /**
-     * A dropdown with a defined list is a controlled vocabulary - "Country
-     * Code" holds dialling codes, and writing "DE" into it created a "DE"
-     * option next to +49. An unmatched value is reported, not invented; only a
-     * dropdown with no labels of its own is treated as free text.
+     * A dropdown is a controlled vocabulary - "Country Code" holds dialling
+     * codes, and writing "DE" into it created a "DE" option next to +49. Only
+     * an option the column already has is ever written, and by id, so no
+     * string can create one. An unmatched value is reported in Comments, and a
+     * dropdown whose options could not be read gets nothing at all.
      */
     case 'dropdown': {
-      const wanted = value.split(/[;,]/)[0].trim().slice(0, 80);
-      if (!statusLabels(column).length) return { labels: [wanted] };
-
-      const match = findStatusLabel(column, wanted, entry.matchPrefix);
-      return match ? { labels: [match.label] } : undefined;
+      const match =
+        findStatusLabel(column, value, entry.matchPrefix) ||
+        findStatusLabel(column, value.split(/[;,]/)[0].trim(), entry.matchPrefix);
+      return match ? { ids: [match.index] } : undefined;
     }
 
     case 'email': {
@@ -335,6 +426,10 @@ function formatValue(column, raw, fields, entry = {}) {
  * `settings_str` is JSON-in-a-string and the two column types disagree on its
  * shape - status is `{"labels":{"0":"Inbound"}}`, dropdown is
  * `{"labels":[{"id":1,"name":"+49"}]}`. Both normalise to {index, label}.
+ *
+ * A dropdown option deactivated in monday stays in `labels` and is listed by id
+ * under `deactivated_labels`; it is no longer offered on the board, so it is not
+ * offered here either.
  */
 export function statusLabels(column) {
   let settings;
@@ -343,6 +438,12 @@ export function statusLabels(column) {
   } catch {
     return [];
   }
+
+  const deactivated = new Set(
+    (Array.isArray(settings.deactivated_labels) ? settings.deactivated_labels : []).map((entry) =>
+      Number(entry?.id ?? entry),
+    ),
+  );
 
   const labels = settings.labels;
   const entries = Array.isArray(labels)
@@ -353,7 +454,7 @@ export function statusLabels(column) {
       }));
 
   return entries
-    .filter((entry) => entry.label.trim() && Number.isFinite(entry.index))
+    .filter((entry) => entry.label.trim() && Number.isFinite(entry.index) && !deactivated.has(entry.index))
     .sort((a, b) => a.index - b.index);
 }
 
@@ -421,7 +522,7 @@ function countryCodeOf(fields) {
  * registry court, confidences, sources, company status - collected into the
  * Comments column so the verification trail is not lost.
  */
-function composeNotes(fields, unmatched = []) {
+function composeNotes(fields, unmatched = [], banded = [], fxDate = '') {
   const lines = [];
   const add = (label, key) => {
     const value = fields[key];
@@ -439,6 +540,11 @@ function composeNotes(fields, unmatched = []) {
   add('Overall confidence', 'CONFIDENCE');
   add('Verification source', 'VERIFICATION_SOURCE');
   add('Registry source', 'REGISTRY_SOURCE');
+
+  // How a revenue figure reached its band, or why it did not.
+  for (const entry of banded) {
+    lines.push(`${entry.title} figure: ${entry.figure} - ${describeBanding(entry, fxDate)}`);
+  }
 
   // Researched, but the column's options had no home for it.
   for (const entry of unmatched) {

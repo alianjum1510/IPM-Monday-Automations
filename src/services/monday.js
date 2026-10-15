@@ -71,13 +71,20 @@ const BOARD_ITEMS_QUERY = `
   }
 `;
 
+/**
+ * `create_labels_if_missing: false` is the backstop for the controlled
+ * columns: status and dropdown values are already written by index / id
+ * against options the board has, and if anything ever slips through as a
+ * label string, monday rejects that one column (writeColumns drops it and
+ * retries) instead of adding an option nobody created.
+ */
 const CHANGE_VALUES = `
   mutation ChangeValues($boardId: ID!, $itemId: ID!, $values: JSON!) {
     change_multiple_column_values(
       board_id: $boardId
       item_id: $itemId
       column_values: $values
-      create_labels_if_missing: true
+      create_labels_if_missing: false
     ) { id }
   }
 `;

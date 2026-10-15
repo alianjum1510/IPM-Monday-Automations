@@ -43,7 +43,7 @@ goes to `Company Email` (`email_mm6a4nxf` / `email_mm6ar88x`).
 | Column type | Empty value becomes | Why |
 | --- | --- | --- |
 | text, long text | `N/A` | plain string |
-| dropdown | `N/A` label | created via `create_labels_if_missing` |
+| dropdown | `N/A` option | **only** when the dropdown already has an `N/A` option; otherwise left empty (see change 9) |
 | link, email, phone | `N/A` | these carry their own display label, so the cell reads N/A instead of sitting blank |
 | numbers, date, country | left empty | monday parses these into a numeric/ISO value and has nowhere to keep the string `N/A` |
 
@@ -96,7 +96,7 @@ that. Same bug put a `DE` option into `Country Code`, which is a list of
 - A researched value with no matching option is written to **Comments** as
   `<Column> (no matching option): <value>` and named in the run log, rather than
   dropped or invented. `N/A` filling is unchanged.
-- A dropdown with no labels of its own is still treated as free text.
+- A dropdown with no readable options gets nothing written at all (see change 9).
 
 **5. Web-search citations are stripped.**
 `web_search` returns markdown-link citations, so `Contact Name` arrived as
@@ -201,6 +201,55 @@ segment or the words the address ends on do. If step 4 fails or answers
 only when nothing names one. The run log shows
 `(country: Austria from postal prefix in address)`.
 
+**9. Dropdowns only ever take one of their own options.**
+The research used to be asked for revenue, legal form, ownership and phone type
+in its own words (`e.g. "1M-10M EUR"`), so answers rarely matched the board and
+the cell fell back to an `N/A` option that the write itself created. Now:
+
+- the prompt lists each dropdown's **current** options from the board
+  ([`optionChoices`](src/lib/mapping.js)) and the model must copy one exactly
+  or answer `Not found`. A new option added in monday is offered on the next
+  run, with no redeploy;
+- dropdowns are written by option **id**, not label text, and the mutation
+  runs with `create_labels_if_missing: false`, so monday rejects anything that
+  is not already an option instead of adding it;
+- `N/A` is written only to a dropdown that already has an `N/A` option, and a
+  dropdown whose options can't be read is left empty instead of taking free text;
+- options deactivated in monday are neither offered nor written;
+- a researched value with no matching option still goes to **Comments** as
+  `<Column> (no matching option): <value>`.
+
+**10. A revenue figure is placed into its band by arithmetic, in the board's currency.**
+Text matching only accepts an answer that already spells a band, so `€30 million`
+never reached `10M-50M EUR`. The research now also returns the raw figure
+(`ANNUAL_REVENUE_FIGURE: EUR 30,000,000 (2024)`) and
+[revenue.js](src/lib/revenue.js) places it:
+
+1. the bands are read from the column's **current** options: `< 1M EUR` is
+   0–1M, `1M-10M EUR` is 1M–10M, `500M+ EUR` is 500M and up. Rename or re-cut
+   the bands in monday and the next run uses them;
+2. the figure is converted into the bands' currency, with the day's **ECB
+   rates** ([fx.js](src/services/fx.js), cached 12 hours). A figure in euros on
+   a board whose options are in dollars is converted to dollars first;
+3. it goes into the band that contains it. **A band includes its lower bound and
+   excludes its upper one**, so exactly 30M goes to `30M-50M`, never `15M-30M`.
+   The board's own labels already read that way (`< 1M` leaves 1M out, `500M+`
+   takes 500M in).
+
+Understood: `€30 million`, `30 Mio. EUR`, `1,2 Mrd. €`, `30.000 TEUR`,
+`1.500.000,00 €`, `$1.2B`, and ranges (`30-35 Mio.`, placed by the midpoint).
+
+The figure wins over the band the model picked. When it can't be placed (no
+figure, an unreadable amount, a currency with no rate, no band covering it),
+the model's band is text-matched as before. Comments always says which happened:
+`Estimated Annual Revenue figure: EUR 45,000,000 (2024) - 45M EUR = 56.25M USD
+at ECB rate of 2026-10-15 -> 50M+ USD`, or `- not placed (no exchange rate for
+GBP -> EUR)`. The run log carries the same as `banded: …`.
+
+There is no hard-coded fallback rate table. If the rate feed is down, a figure
+already in the board's currency is still placed, and a foreign one falls back
+to the model's band rather than a stale rate.
+
 ## What gets written
 
 29 columns, from the prompt's output block plus the `EXTRA FIELDS` section that
@@ -245,6 +294,8 @@ Set on the **app** (11727119), not the version, so a redeploy inherits them:
 | `LIFECYCLE_STAGE_SOURCES` | optional, comma-separated: the stages enrichment may move a lead off (default `Inbound,Data authentication required`) |
 | `OPENAI_COUNTRY_MODEL` | optional: a cheaper model for the one-word country classification (defaults to `OPENAI_MODEL`) |
 | `TAXONOMY_TTL_MS` | optional: how long the Industry / Job Function taxonomies are cached (default 600000) |
+| `FX_RATES_URL` | optional: exchange-rate feed quoted per 1 EUR (default `https://api.frankfurter.app/latest?from=EUR`, the ECB reference rates) |
+| `FX_TTL_MS` | optional: how long the exchange rates are cached (default 43200000, 12 hours) |
 
 ```bash
 npx @mondaycom/apps-cli code:env -i 11727119 -m list-keys

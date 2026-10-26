@@ -1,5 +1,6 @@
 import express from 'express';
 import { env, assertConfigured } from './src/config/env.js';
+import { describeBoard } from './src/config/boards.js';
 import { log, logError } from './src/lib/logger.js';
 import { enrichItem } from './src/services/enrichment.js';
 
@@ -22,6 +23,7 @@ app.post('/', (req, res) => {
 
   const resolvedBoardId = boardId || env.defaultBoardId;
   log(`Resolved IDs: boardId=${resolvedBoardId}, itemId=${itemId}`);
+  if (resolvedBoardId) log(`Board: ${describeBoard(resolvedBoardId)}`);
 
   if (!resolvedBoardId || !itemId) {
     res.status(400).json({ error: 'boardId and itemId are required' });

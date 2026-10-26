@@ -1,10 +1,11 @@
 /**
  * Maps parsed research fields onto board columns.
  *
- * Columns are resolved by TITLE, not id: the two boards this block runs on
- * (5100825258 "Warm Lead Mining Board", 5100463291 "Lead Mining Board") carry
- * the same titles behind different ids, so a title lookup is what makes one
- * deployment serve both. A column that does not exist on the board is skipped.
+ * Columns are resolved by TITLE, not id: the boards this block runs on (see
+ * src/config/boards.js - the Netgains sandbox boards and the dev sandbox copy)
+ * carry the same titles behind different ids, so a title lookup is what makes
+ * one deployment serve all of them. A column that does not exist on the board
+ * is skipped.
  */
 import { matchTaxonomyItem } from './taxonomy.js';
 import { REMOVED_REMARKS } from './parse.js';

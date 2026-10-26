@@ -365,34 +365,40 @@ test('the ISO code still goes to the country column', () => {
 });
 
 test('a dropdown option is never invented, and the value survives in Comments', () => {
-  const board = withDropdownLabels(
-    withStageLabels(warm, WARM_STAGE_LABELS),
-    'Estimated Annual Revenue',
-    ['0-1M EUR', '1M-10M EUR'],
-  );
+  const board = withDropdownLabels(withStageLabels(warm, WARM_STAGE_LABELS), 'Company Structure', ['GmbH', 'AG']);
   const { values, unmatched, filled, skipped } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
-  // "1B+ EUR" is not on the list, and neither is N/A - the cell is left alone.
-  assert.equal(values[idOf(board, 'Estimated Annual Revenue')], undefined);
-  assert.ok(skipped.includes('Estimated Annual Revenue'));
-  assert.ok(!filled.includes('Estimated Annual Revenue'), 'no N/A option to fall back on');
+  // "AG & Co. KG" is not on the list, and neither is N/A - the cell is left alone.
+  assert.equal(values[idOf(board, 'Company Structure')], undefined);
+  assert.ok(skipped.includes('Company Structure'));
+  assert.ok(!filled.includes('Company Structure'), 'no N/A option to fall back on');
   // The fixture's other dropdowns have no options either, so they report too.
   assert.deepEqual(
-    unmatched.filter((entry) => entry.title === 'Estimated Annual Revenue'),
-    [{ title: 'Estimated Annual Revenue', value: '1B+ EUR' }],
+    unmatched.filter((entry) => entry.title === 'Company Structure'),
+    [{ title: 'Company Structure', value: 'AG & Co. KG' }],
   );
+  assert.match(values[idOf(board, 'Comments')].text, /Company Structure \(no matching option\): AG & Co\. KG/);
+});
+
+test('a revenue band that is not an option goes to the nearest band', () => {
+  const board = withDropdownLabels(warm, 'Estimated Annual Revenue', ['0-1M EUR', '1M-10M EUR']);
+  const { values, unmatched } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
+
+  // "1B+ EUR" is far above both bands; 1M-10M is the nearest, never a new option.
+  assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [2] });
+  assert.ok(!unmatched.some((entry) => entry.title === 'Estimated Annual Revenue'));
   assert.match(
     values[idOf(board, 'Comments')].text,
-    /Estimated Annual Revenue \(no matching option\): 1B\+ EUR/,
+    /Estimated Annual Revenue figure: 1B\+ EUR - 1B EUR -> nearest option 1M-10M EUR/,
   );
 });
 
 test('an unmatched dropdown falls back to N/A only when N/A is one of its options', () => {
-  const board = withDropdownLabels(warm, 'Estimated Annual Revenue', [...REVENUE_BANDS, NA_TEXT]);
+  const board = withDropdownLabels(warm, 'Company Structure', ['GmbH', 'AG', NA_TEXT]);
   const { values, filled } = buildColumnValues(board.columns, parseEnrichment(FULL_ANSWER));
 
-  assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [REVENUE_BANDS.length + 1] });
-  assert.ok(filled.includes('Estimated Annual Revenue'));
+  assert.deepEqual(values[idOf(board, 'Company Structure')], { ids: [3] });
+  assert.ok(filled.includes('Company Structure'));
 });
 
 test('the board\'s own revenue bands are matched, symbols and all', () => {

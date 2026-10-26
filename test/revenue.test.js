@@ -22,7 +22,7 @@ const USD_BANDS = ['< 1M USD', '1M-10M USD', '10M-50M USD', '50M+ USD'];
 const options = (names) => names.map((label, i) => ({ index: i + 1, label }));
 const bandOf = (names, figure, rates) => bandForFigure(options(names), figure, rates)?.label;
 
-const RATES = { EUR: 1, USD: 1.25 };
+const RATES = { EUR: 1, USD: 1.25, PKR: 312.5, INR: 100 };
 
 test('the board labels read as half-open ranges', () => {
   assert.deepEqual(parseBand('< 1M EUR'), { min: 0, max: 1e6, currency: 'EUR' });
@@ -172,11 +172,67 @@ test('the conversion is spelled out in Comments', () => {
   assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [4] }, '50M+ USD');
   assert.match(
     values[idOf(board, 'Comments')].text,
-    /45M EUR = 56\.25M USD at ECB rate of 2026-10-15 -> 50M\+ USD/,
+    /45M EUR = 56\.25M USD at exchange rate of 2026-10-15 -> 50M\+ USD/,
   );
 });
 
 test('the prompt asks for the raw figure', async () => {
   const { buildPrompt } = await import('../src/lib/prompt.js');
   assert.match(buildPrompt('Muster GmbH', 'Badstraße 115, 71336 Waiblingen'), /ANNUAL_REVENUE_FIGURE: \[/);
+});
+
+test('Pakistani and Indian amounts are read', () => {
+  const cases = [
+    ['PKR 50 crore', 50e7],
+    ['PKR 20 lakh', 20e5],
+    ['PKR 20,00,000', 2e6],
+    ['PKR 1,25,00,000', 12.5e6],
+    ['PKR 2 arab', 2e9],
+    ['INR 3.5 crore (2024)', 3.5e7],
+  ];
+  for (const [text, amount] of cases) {
+    assert.equal(parseFigure(text)?.amount, amount, text);
+  }
+  assert.equal(parseFigure('PKR 50 crore').currency, 'PKR');
+  assert.equal(parseFigure('₹ 3 crore').currency, 'INR');
+  assert.equal(parseFigure('try 30 Mio.').currency, '', '"try" is not Turkish lira');
+});
+
+test('a dollar revenue range is converted to euros and lands in the euro band', () => {
+  // Programmers Force: "$10M-$50M" -> 30M USD by the midpoint -> 24M EUR at 1.25.
+  assert.equal(bandOf(EUR_BANDS, 'USD 10M-50M (estimate, Crunchbase)', RATES), '10M-50M EUR');
+  assert.equal(bandOf(EUR_BANDS, '$10M-$50M', RATES), '10M-50M EUR');
+  // 10M USD alone is 8M EUR - below 10M, so 1M-10M EUR.
+  assert.equal(bandOf(EUR_BANDS, 'USD 10,000,000', RATES), '1M-10M EUR');
+});
+
+test('a rupee revenue is converted to euros and lands in the euro band', () => {
+  // 500 crore PKR = 5bn PKR = 16M EUR at 312.5.
+  assert.equal(bandOf(EUR_BANDS, 'PKR 500 crore (2023)', RATES), '10M-50M EUR');
+  assert.equal(bandOf(EUR_BANDS, 'PKR 20 lakh', RATES), '< 1M EUR');
+});
+
+test('"Rs" alone is not placed - it could be several currencies', () => {
+  assert.match(bandForFigure(options(EUR_BANDS), 'Rs 50 crore', RATES).reason, /no ISO code/);
+});
+
+test('with no band containing the figure, the nearest one is taken', () => {
+  const gappy = ['1M-10M EUR', '50M-100M EUR'];
+  assert.equal(bandOf(gappy, 'EUR 20,000,000', RATES), '1M-10M EUR', '10M away vs 30M away');
+  assert.equal(bandOf(gappy, 'EUR 40,000,000', RATES), '50M-100M EUR');
+  assert.equal(bandForFigure(options(gappy), 'EUR 40,000,000', RATES).nearest, true);
+  assert.equal(bandOf(['10M EUR', '50M EUR', '100M EUR'], 'EUR 11,000,000', RATES), '10M EUR', 'point options');
+});
+
+test('the model\'s own band answer is converted when it is not an option', () => {
+  const board = withRevenueOptions(EUR_BANDS);
+  const { values } = buildColumnValues(
+    board.columns,
+    parseEnrichment('ESTIMATED_ANNUAL_REVENUE: $10M-$50M\nANNUAL_REVENUE_FIGURE: Not found'),
+    {},
+    { rates: RATES, date: '2026-10-26' },
+  );
+
+  assert.deepEqual(values[idOf(board, 'Estimated Annual Revenue')], { ids: [3] }, '10M-50M EUR');
+  assert.match(values[idOf(board, 'Comments')].text, /30M USD = 24M EUR at exchange rate of 2026-10-26 -> 10M-50M EUR/);
 });

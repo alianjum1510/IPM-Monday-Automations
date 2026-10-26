@@ -25,6 +25,8 @@ export const env = {
   /** ECB exchange rates for placing a revenue figure into the board's bands. */
   fx: {
     url: process.env.FX_RATES_URL || 'https://api.frankfurter.app/latest?from=EUR',
+    /** Every currency the ECB does not publish (PKR among them). */
+    fallbackUrl: process.env.FX_FALLBACK_URL || 'https://open.er-api.com/v6/latest/EUR',
     ttlMs: Number(process.env.FX_TTL_MS) || 12 * 60 * 60 * 1000,
   },
 

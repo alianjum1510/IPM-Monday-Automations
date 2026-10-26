@@ -8,8 +8,9 @@
  *   1. the bands are read from the column's CURRENT options, not a list in the
  *      code - "< 1M EUR" is [0, 1M), "1M-10M EUR" is [1M, 10M), "500M+ EUR" is
  *      [500M, infinity) - so renaming or re-cutting the bands needs no deploy;
- *   2. the figure is converted into the bands' currency (EUR -> USD when the
- *      board's options are in dollars) with the day's ECB rates;
+ *   2. the figure is converted into the bands' currency (USD or PKR -> EUR,
+ *      or EUR -> USD when the board's options are in dollars) with the day's
+ *      rates;
  *   3. the band whose range contains it wins.
  *
  * Every band includes its lower bound and excludes its upper one, so a figure
@@ -21,19 +22,27 @@
  * this is testable without a network.
  */
 
-/** Multipliers, longest spelling first so "mio" is not read as "m". */
+/**
+ * Multipliers, longest spelling first so "mio" is not read as "m". Lakh (1e5),
+ * crore (1e7) and arab (1e9) are how Pakistani and Indian sources state
+ * revenue: "PKR 50 crore" is 500 million rupees.
+ */
 const MULTIPLIERS = [
-  [/^(?:milliarden?|mrd\.?|billions?|bn|b)$/i, 1e9],
+  [/^(?:milliarden?|mrd\.?|billions?|bn|b|arabs?)$/i, 1e9],
+  [/^(?:crores?|cr\.?)$/i, 1e7],
   [/^(?:millionen|millions?|mio\.?|mn|m)$/i, 1e6],
+  [/^(?:lakhs?|lacs?)$/i, 1e5],
   [/^(?:tausend|thousand|tsd\.?|k|t)$/i, 1e3],
 ];
 
 /**
  * A number with an optional multiplier after it. "T" only counts in front of a
  * currency - "30.000 TEUR" / "30.000 T€" is how German accounts write thousands.
+ * Digit groups of two are accepted for the Pakistani/Indian grouping
+ * ("20,00,000" is 20 lakh); parseNumber decides what the separators mean.
  */
 const AMOUNT =
-  /(\d+(?:[.,\s]\d{3})*(?:[.,]\d+)?)\s*(?:(milliarden?|mrd\.?|billions?|bn|millionen|millions?|mio\.?|mn|tausend|thousand|tsd\.?|[bmk])(?![a-z])|(t)(?=\s*(?:€|eur)))?/gi;
+  /(\d+(?:[.,]\d{2,3}|\s\d{3})*(?:[.,]\d+)?)\s*(?:(milliarden?|mrd\.?|billions?|bn|arabs?|crores?|cr\.?|millionen|millions?|mio\.?|mn|lakhs?|lacs?|tausend|thousand|tsd\.?|[bmk])(?![a-z])|(t)(?=\s*(?:€|eur)))?/gi;
 
 /** Joins two amounts into a range: "1M-10M", "1 to 10 Mio.", "1 bis 10". */
 const RANGE_JOIN = /^\s*(?:-|–|—|to|bis)\s*[^\d]{0,6}$/i;
@@ -44,15 +53,24 @@ const ABOVE = /(?:^|[^a-zäöü])(?:[>≥]|(?:over|above|more than|über|ueber|a
 const PLUS_AFTER = /^\s*[a-z€$£.\s]*\+/i;
 
 /**
- * ISO codes first, then symbols, then words. Codes are whole words so "Nokia"
- * is not kroner - except EUR, which German accounts prefix with T ("TEUR").
+ * ISO codes first, then symbols, then words. Codes are whole upper-case words,
+ * so "Nokia" is not kroner and "try" is not Turkish lira - except EUR, which
+ * German accounts prefix with T ("TEUR").
  */
-const isoCode = (iso) => new RegExp(`(?<![a-z])${iso}(?![a-z])`, 'i');
+const isoCode = (iso) => new RegExp(`(?<![A-Za-z])${iso}(?![A-Za-z])`);
+const ISO_CODES = [
+  'GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'NOK', 'DKK', 'HUF', 'RON', 'BGN', 'TRY', 'ISK', 'UAH', 'RUB',
+  'PKR', 'INR', 'BDT', 'LKR', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'ILS', 'EGP', 'MAD', 'NGN',
+  'KES', 'ZAR', 'CNY', 'HKD', 'JPY', 'KRW', 'SGD', 'MYR', 'THB', 'IDR', 'PHP', 'VND', 'AUD', 'NZD',
+  'CAD', 'MXN', 'BRL',
+];
 const CURRENCIES = [
   [/(?<![a-z])USD(?![a-z])|US\$/i, 'USD'],
   [/(?<![a-su-z])EUR/i, 'EUR'],
-  ...['GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'NOK', 'DKK', 'HUF'].map((iso) => [isoCode(iso), iso]),
+  ...ISO_CODES.map((iso) => [isoCode(iso), iso]),
   [/€|euros?\b/i, 'EUR'],
+  [/₹/, 'INR'],
+  [/₨/, 'PKR'],
   [/\$|dollars?\b/i, 'USD'],
   [/£|pounds?\b/i, 'GBP'],
   [/franken|francs?\b|\bFr\./i, 'CHF'],
@@ -65,6 +83,14 @@ export function detectCurrency(text) {
   }
   return '';
 }
+
+/**
+ * "Rs", "Rs." and "rupees" are used in Pakistan, India and Sri Lanka alike, and
+ * those rupees differ in value. A figure that names its currency only this way
+ * is not placed - taken as euros it would be about 300 times too large. The
+ * prompt asks for the ISO code (PKR, INR) to avoid this.
+ */
+const AMBIGUOUS_RUPEE = /(?<![a-z])rs\.?(?![a-z])|rupees?/i;
 
 /**
  * "30.000.000", "30,000,000", "1,2", "1.5", "30 000 000" -> a number.
@@ -172,7 +198,10 @@ export function parseFigure(text) {
       : scaled(found[i]);
     const hasMultiplier = found[i].multiplier || (isRange && next.multiplier);
 
-    if (hasMultiplier || amount >= 10000) return { amount, currency: detectCurrency(plain) };
+    if (hasMultiplier || amount >= 10000) {
+      const currency = detectCurrency(plain);
+      return { amount, currency, ambiguous: !currency && AMBIGUOUS_RUPEE.test(plain) };
+    }
   }
 
   return null;
@@ -206,6 +235,7 @@ export function convert(amount, from, to, rates) {
 export function bandForFigure(labels, figureText, rates) {
   const figure = parseFigure(figureText);
   if (!figure) return null;
+  if (figure.ambiguous) return { reason: 'the currency is "Rs"/rupees with no ISO code (PKR, INR ...)' };
 
   const bands = labels
     .map((option) => ({ ...option, band: parseBand(option.label) }))

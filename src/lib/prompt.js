@@ -153,7 +153,7 @@ FAX: [fax number in international format]
 PHONE_TYPE: ${optionHint(choices, 'PHONE_TYPE', 'Landline, Mobile, or VoIP')}
 CONTACT_NAME: [managing director / primary named contact]
 COMPANY_SIZE: [employee count as a plain integer, no ranges, no text]
-ANNUAL_REVENUE_FIGURE: [latest annual revenue found, as currency code and full amount with the year in brackets, e.g. "EUR 30,000,000 (2024)" - or "Not found"]
+ANNUAL_REVENUE_FIGURE: [latest annual revenue found, in the currency the source states it in - do NOT convert it - as ISO currency code and amount, with the year and source in brackets, e.g. "EUR 30,000,000 (2024, Bundesanzeiger)", "PKR 50 crore (2023, company report)", "USD 10M-50M (estimate, Crunchbase)". A published estimate or range counts. Use the ISO code (PKR, INR), never "Rs". Write "Not found" only if no figure or estimate exists]
 ESTIMATED_ANNUAL_REVENUE: ${optionHint(choices, 'ESTIMATED_ANNUAL_REVENUE', 'revenue band, e.g. "1M-10M EUR"')}
 COMPANY_STRUCTURE: ${optionHint(choices, 'COMPANY_STRUCTURE', 'legal form, e.g. GmbH, AG, e.K., GmbH & Co. KG')}
 OWNERSHIP_TYPE: ${optionHint(choices, 'OWNERSHIP_TYPE', 'Private, Public, Government, Municipality, Non-profit')}
@@ -185,8 +185,11 @@ function optionRules(choices) {
 DROPDOWN FIELDS: ${fields.join(', ')} fill fixed dropdowns on the board. For
 each of them, copy ONE of the listed options exactly as written, without the
 quotes. Do NOT reword, translate, combine or invent a value. Pick the option the
-research supports (for a revenue band, the band the figure falls into); if no
-option genuinely fits or the value cannot be verified, write exactly "Not found".`;
+research supports. If the exact value is not listed, choose the CLOSEST option:
+for a revenue band, convert the figure to the band currency and pick the band
+it falls into or the nearest one; for anything else, the option closest in
+meaning, whatever language the options are written in. Write exactly "Not
+found" only when you found nothing at all for that field.`;
 }
 
 /**

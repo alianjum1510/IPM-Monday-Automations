@@ -300,6 +300,22 @@ export function buildColumnValues(columns, fields, relations = {}, fx = null) {
       continue;
     }
 
+    /**
+     * The model answered the band with one that is not an option - "$10M-$50M"
+     * on a board of EUR bands. Read it as a figure (a range by its midpoint),
+     * convert it, and take the band that contains it or the nearest one, so the
+     * cell still gets one of the column's own options.
+     */
+    const answer = String(raw || '').trim();
+    if (entry.figureField && answer && column.type === 'dropdown') {
+      const placed = bandForFigure(statusLabels(column), answer, fx?.rates);
+      if (placed?.label) {
+        values[column.id] = { ids: [placed.index] };
+        banded.push({ title: entry.title, figure: answer, ...placed });
+        continue;
+      }
+    }
+
     // A real value the column's own vocabulary has no room for - keep it in the
     // notes rather than dropping it or inventing an option for it.
     const researched = String(raw || '').trim();
@@ -333,16 +349,16 @@ export function buildColumnValues(columns, fields, relations = {}, fx = null) {
   return { values, filled, skipped, unmatched, linked, ambiguous, cleaned, banded };
 }
 
-/** "32.4M USD at ECB rate of 2026-10-15 -> 30M-50M USD", or why it was not placed. */
+/** "32.4M USD at exchange rate of 2026-10-15 -> 30M-50M USD", or why it was not placed. */
 function describeBanding(entry, fxDate) {
   if (!entry.label) return `not placed (${entry.reason})`;
 
   const converted =
     entry.from && entry.from !== entry.currency
       ? `${formatAmount(entry.original, entry.from)} = ${formatAmount(entry.amount, entry.currency)}` +
-        ` at ECB rate${fxDate ? ` of ${fxDate}` : ''}`
+        ` at exchange rate${fxDate ? ` of ${fxDate}` : ''}`
       : formatAmount(entry.amount, entry.currency);
-  return `${converted} -> ${entry.label}`;
+  return `${converted} -> ${entry.nearest ? 'nearest option ' : ''}${entry.label}`;
 }
 
 function titleOfField(key) {

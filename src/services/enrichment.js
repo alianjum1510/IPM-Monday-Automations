@@ -15,6 +15,7 @@ import { loadRelationTaxonomies, taxonomyChoices } from '../lib/taxonomy.js';
 import { getBoard, getItem, writeColumns } from './monday.js';
 import { classifyCountry, research } from './openai.js';
 import { getRates } from './fx.js';
+import { restrictToAllowedOptions } from '../config/boards.js';
 import { countryCode, countryFromInput, countryName } from '../lib/country.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,7 +59,10 @@ export async function enrichItem(requestedBoardId, itemId) {
     return { success: true, boardId: String(boardId), itemId: String(itemId), skipped: item.state };
   }
 
-  const board = await getBoard(boardId);
+  const fullBoard = await getBoard(boardId);
+  // Only the values allowed for THIS board (src/config/boards.js) are ever
+  // offered to the AI or written - the dev sandbox uses its own list.
+  const board = { ...fullBoard, columns: restrictToAllowedOptions(boardId, fullBoard.columns) };
   const byId = new Map(board.columns.map((column) => [column.id, column]));
   const text = {};
   for (const value of item.column_values || []) {
@@ -106,8 +110,10 @@ export async function enrichItem(requestedBoardId, itemId) {
     throw new Error(`no parsable fields in the model output for item ${itemId}`);
   }
 
-  // Only fetched when there is a revenue figure to convert - cached for hours anyway.
-  const fx = fields.ANNUAL_REVENUE_FIGURE ? await getRates() : null;
+  // Any revenue the research returns - the figure or the band it picked - may be
+  // in USD, PKR or another currency and is converted into the board's EUR bands.
+  // Cached for hours, so this is normally free.
+  const fx = fields.ANNUAL_REVENUE_FIGURE || fields.ESTIMATED_ANNUAL_REVENUE ? await getRates() : null;
 
   const { values, filled, skipped, unmatched, linked, ambiguous, cleaned, banded } = buildColumnValues(
     board.columns,

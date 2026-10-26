@@ -122,6 +122,9 @@ function scaled(first, second) {
 /**
  * A revenue band label -> {min, max, currency}, or null when the label is not
  * a numeric band at all ("N/A", "Unknown").
+ *
+ * A single amount with no "<" or "+" ("10M EUR") is a point option: min and max
+ * are the same number, and a figure goes to the nearest one.
  */
 export function parseBand(label) {
   const text = String(label || '');
@@ -141,6 +144,7 @@ export function parseBand(label) {
 
     if (BELOW.test(before)) return { min: 0, max: amount, currency };
     if (PLUS_AFTER.test(after) || ABOVE.test(before)) return { min: amount, max: Infinity, currency };
+    if (found[0].multiplier || amount >= 10000) return { min: amount, max: amount, currency, point: true };
   }
 
   return null;
@@ -188,15 +192,15 @@ export function convert(amount, from, to, rates) {
 }
 
 /**
- * The band a figure falls into.
+ * The band a figure falls into - or, when none contains it, the nearest one.
  *
- * @param {Array<{index: number, label: string}>} labels the column's options
  * The bands' currency is the first one any option names; options that name
  * none share it. A figure with no currency of its own is taken to be in the
  * board's currency already.
  *
+ * @param {Array<{index: number, label: string}>} labels the column's options
  * @returns {{index: number, label: string, amount: number, currency: string,
- *            from: string, original: number}
+ *            from: string, original: number, nearest: boolean}
  *          | {reason: string} | null} null when there is no figure to place
  */
 export function bandForFigure(labels, figureText, rates) {
@@ -216,10 +220,33 @@ export function bandForFigure(labels, figureText, rates) {
   const amount = convert(figure.amount, from, currency, rates);
   if (amount === null) return { reason: `no exchange rate for ${from} -> ${currency}` };
 
-  const hit = bands.find((option) => option.band.min <= amount && amount < option.band.max);
-  if (!hit) return { reason: `no band covers ${formatAmount(amount, currency)}` };
+  // The band that contains the figure; otherwise the option nearest to it, so
+  // a figure in a gap between bands, or between point options, still lands on
+  // one of the column's own options. Ties go to the earlier option.
+  let best = null;
+  for (const option of bands) {
+    const distance = distanceTo(amount, option.band);
+    if (!best || distance < best.distance) best = { option, distance };
+  }
+  const hit = best.option;
 
-  return { index: hit.index, label: hit.label, amount, currency, from, original: figure.amount };
+  return {
+    index: hit.index,
+    label: hit.label,
+    amount,
+    currency,
+    from,
+    original: figure.amount,
+    nearest: best.distance > 0,
+  };
+}
+
+/** 0 inside the band (lower bound in, upper bound out), else how far outside it. */
+function distanceTo(amount, band) {
+  if (band.point) return Math.abs(amount - band.min);
+  if (amount < band.min) return band.min - amount;
+  if (amount >= band.max) return amount - band.max;
+  return 0;
 }
 
 /** 32400000 -> "32.4M USD", for Comments and the run log. */

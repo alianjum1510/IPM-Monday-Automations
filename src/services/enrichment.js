@@ -35,10 +35,24 @@ const ADDRESS_PARTS = [
  * The whole job for one item: read it, research it, write the columns back.
  * Runs detached from the HTTP response - monday only waits for the ack.
  */
-export async function enrichItem(boardId, itemId) {
+export async function enrichItem(requestedBoardId, itemId) {
   const item = await getItem(itemId);
 
   if (!item) throw new Error(`item ${itemId} not found`);
+
+  /**
+   * The board is the one the ITEM lives on, not the id the request carried.
+   * The dev sandbox copy and the original board share column ids but not their
+   * dropdown options, so reading the options off the wrong board - a request
+   * with no board id falling back to DEFAULT_BOARD_ID, or a recipe pointing at
+   * the other board - wrote the original board's option ids into a dev item.
+   * The item's own board makes the dev board use dev options, always.
+   */
+  const boardId = item.board?.id ? String(item.board.id) : String(requestedBoardId);
+  if (String(requestedBoardId) !== boardId) {
+    log(`Item ${itemId}: request named board ${requestedBoardId} but the item is on board ${boardId} - using ${boardId}`);
+  }
+
   if (item.state && item.state !== 'active') {
     log(`Item ${itemId}: ${item.state} — skipping`);
     return { success: true, boardId: String(boardId), itemId: String(itemId), skipped: item.state };

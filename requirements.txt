@@ -1,4 +1,12 @@
-# Each app keeps its own list; a2wsgi runs the Flask enrichment app inside the FastAPI server.
--r company_enrichment/requirements.txt
--r customer_name_split_py/requirements.txt
-a2wsgi==1.10.10
+# One list for the whole deployment (monday-code installs this file).
+# Server and shared core
+fastapi==0.142.2
+uvicorn[standard]>=0.30
+PyJWT==2.12.1
+monday-code~=2.1
+requests==2.32.3
+# customer_name_split
+httpx==0.28.1
+# company_enrichment
+regex==2024.11.6
+babel==2.16.0

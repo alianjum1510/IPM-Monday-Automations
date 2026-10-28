@@ -54,7 +54,7 @@ async def split_name(request: Request):
     payload = body.get("payload") or {}
     # Automation blocks (monday workflows) send `inputFields`; the legacy sentence builder `inboundFieldValues`.
     fields = payload.get("inputFields") or payload.get("inboundFieldValues") or {}
-    log.info("input fields: %s", fields)
+    log.info("input fields: %s", fields, extra={"payload": {"input_fields": fields}})
 
     try:
         board_id = int(field(fields, "boardId") or DEFAULT_BOARD_ID)

@@ -1,17 +1,26 @@
 """
-Plain stdout logging - monday-code ships stdout to `mapps code:logs -t console`.
-Message shapes are kept identical to the previous deployment so historic log
-searches (`Action received`, `Background enrichment done`) keep matching.
+The run log. Message shapes are kept identical to the previous deployment so
+historic log searches (`Action received`, `Background enrichment done`) keep
+matching.
 
-Flushed on every line: a container's stdout is block-buffered, and a run that
-dies mid-way would otherwise take its last log lines with it.
+Goes through Python's `logging` as the "company_enrichment" logger; the server
+(main.py, monday_logging.py) sends every line to the Developer Center's Logs
+page. Keyword arguments become the line's payload there:
+
+  log(f'Item {item_id}: enriching …', item_id=item_id, board_id=board_id)
 """
-import sys
+import logging
+
+_logger = logging.getLogger('company_enrichment')
 
 
-def log(*parts):
-    print(*parts, flush=True)
+def log(message, **fields):
+    _logger.info(message, extra=_payload(fields))
 
 
-def log_error(*parts):
-    print(*parts, file=sys.stderr, flush=True)
+def log_error(message, **fields):
+    _logger.error(message, extra=_payload(fields))
+
+
+def _payload(fields):
+    return {'payload': fields} if fields else None

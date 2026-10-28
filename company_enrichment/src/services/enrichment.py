@@ -59,7 +59,7 @@ def enrich_item(requested_board_id, item_id):
         )
 
     if item.get('state') and item['state'] != 'active':
-        log(f"Item {item_id}: {item['state']} — skipping")
+        log(f"Item {item_id}: {item['state']} — skipping", item_id=str(item_id), board_id=board_id, skipped=item['state'])
         return {'success': True, 'boardId': board_id, 'itemId': str(item_id), 'skipped': item['state']}
 
     full_board = get_board(board_id)
@@ -77,13 +77,20 @@ def enrich_item(requested_board_id, item_id):
     address = _compose_address(text)
 
     if not company_name and not address:
-        log(f'Item {item_id}: no company name or address — skipping')
+        log(
+            f'Item {item_id}: no company name or address — skipping',
+            item_id=str(item_id), board_id=board_id, skipped='no company name or address',
+        )
         return {'success': True, 'boardId': board_id, 'itemId': str(item_id), 'enriched': False}
 
     country = _classify_lead_country(text.get('Country'), address)
 
     classified = f"{country['name']} from {country['source']}" if country else 'unclassified'
-    log(f'Item {item_id}: enriching "{company_name}" / "{address}" (country: {classified})')
+    log(
+        f'Item {item_id}: enriching "{company_name}" / "{address}" (country: {classified})',
+        item_id=str(item_id), board_id=board_id, company=company_name, address=address,
+        country=country['code'] if country else None,
+    )
 
     # Industry and Job Function are board_relation columns, so their vocabulary
     # lives on other boards and has to be read BEFORE the research: the model is
@@ -167,7 +174,22 @@ def enrich_item(requested_board_id, item_id):
             f"{entry['title']}=\"{entry['name']}\" ({'/'.join(entry['ids'])}, took {entry['ids'][0]})"
             for entry in result['ambiguous']
         )
-    log(message)
+    log(
+        message,
+        item_id=str(item_id),
+        board_id=board_id,
+        columns_written=write['written'],
+        columns_rejected=write['dropped'],
+        verified=verified == 'yes',
+        registration_number=fields.get('REGISTRATION_NUMBER') or None,
+        confidence=fields.get('CONFIDENCE') or None,
+        lifecycle_stage=stage,
+        na_filled=len(result['filled']),
+        left_empty=len(result['skipped']),
+        web_searches=searches,
+        no_matching_option={entry['title']: entry['value'] for entry in result['unmatched']},
+        linked={entry['title']: entry['name'] for entry in result['linked']},
+    )
 
     return {
         'success': True,

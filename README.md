@@ -49,6 +49,26 @@ monday-code service into the process environment, because that app reads only
 environment variables. After a deploy, check the log for `Config OK` (name
 split) and the absence of `Missing environment variables` (enrichment).
 
+## Logs
+
+Every line goes to the Developer Center's **Logs** page with its fields in the
+**payload** column (monday_logging.py sends it to the monday-code service's
+`/logs`; a plain print() arrives with payload `null`).
+
+One line per request says which app answered it - read this first when an
+automation fails:
+
+```
+POST / -> company_enrichment 200 (4 ms)           payload: routed_to, status, board_id, item_id, duration_ms
+POST /customer-name-split -> customer_name_split 200 (180 ms)
+```
+
+Then each app's own lines follow, with `board_id` / `item_id` in the payload:
+`Action received …`, `Item …: updated N columns …`, `Background enrichment done …`
+(enrichment) and `[kunden item …] …`, `[warm lead item …] …` (name split).
+Health checks are not logged. If the Logs page shows nothing after a deploy,
+set `LOG_TARGET=stdout` to log plain JSON lines to the console instead.
+
 ## Run, test, deploy
 
 ```bash

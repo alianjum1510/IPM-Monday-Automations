@@ -7,10 +7,17 @@ One monday-code server for two apps, each kept unchanged in its own folder:
 monday-code gives an app one port (PORT, 8080), so both apps are mounted on
 this one server, each under its own path. GET / answers monday's health check.
 
-This file is the only code the two apps share.
+Every request is logged once - which app it went to, the board and item, the
+status and how long it took - so the Logs page shows what each automation
+run actually reached.
+
+This file and monday_logging.py are the only code the two apps share.
 """
+import json
+import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,6 +34,11 @@ from fastapi.responses import PlainTextResponse  # noqa: E402
 
 from app.config import assert_configured as check_customer_name_split_config  # noqa: E402
 from app.main import app as customer_name_split  # noqa: E402
+from monday_logging import setup_logging  # noqa: E402
+
+# After the imports above: it replaces the logging setup the name split installs on import.
+setup_logging()
+log = logging.getLogger('monday_apps')
 
 # Every setting company_enrichment reads (company_enrichment/src/config/env.py
 # and src/lib/taxonomy.py). PORT is left out: monday-code sets it directly.
@@ -36,10 +48,6 @@ COMPANY_ENRICHMENT_SETTINGS = [
     'FX_RATES_URL', 'FX_FALLBACK_URL', 'FX_TTL_MS',
     'DEFAULT_BOARD_ID', 'BOARD_ITEM_DELAY_MS', 'LIFECYCLE_STAGE_SOURCES', 'TAXONOMY_TTL_MS',
 ]
-
-
-def log(message):
-    print(message, flush=True)
 
 
 async def copy_monday_code_settings(keys):
@@ -75,7 +83,7 @@ async def copy_monday_code_settings(keys):
                         os.environ[key] = str(value)
                         break
     except Exception as error:  # noqa: BLE001 - not on monday-code, or the service is down
-        log(f'monday-code settings not read ({error}) - using the process environment only')
+        log.warning(f'monday-code settings not read ({error}) - using the process environment only')
 
 
 company_enrichment = None  # the Flask app in company_enrichment/index.py, loaded at startup
@@ -100,10 +108,13 @@ async def lifespan(_):
     # The startup lines each app logs when it runs on its own.
     missing = assert_configured()
     if missing:
-        print(f"Missing environment variables: {', '.join(missing)}", file=sys.stderr, flush=True)
+        log.error(f"Missing environment variables: {', '.join(missing)}", extra={'payload': {'missing': missing}})
     await check_customer_name_split_config()
 
-    log(f'Company Enrichment running on port {env.port}')
+    log.info(
+        f'Company Enrichment running on port {env.port}',
+        extra={'payload': {'port': env.port, 'apps': list(APPS.values())}},
+    )
     yield
 
 
@@ -133,18 +144,118 @@ OLD_PATHS = {
 }
 
 
+# Mount -> app name, for the request log.
+APPS = {'/company-enrichment': 'company_enrichment', '/customer-name-split': 'customer_name_split'}
+
+
 async def app(scope, receive, send):
     """
-    The server. A block URL ending on the bare mount ("…/company-enrichment",
-    no trailing slash) is handed to that app as "…/company-enrichment/" - the
-    router would otherwise answer it with a redirect, and a POST from monday
-    is not guaranteed to follow one.
+    The server: picks the app for the path, and logs the request once it is answered.
+
+    A block URL ending on the bare mount ("…/company-enrichment", no trailing
+    slash) is handed to that app as "…/company-enrichment/" - the router would
+    otherwise answer it with a redirect, and a POST from monday is not
+    guaranteed to follow one.
     """
-    if scope['type'] == 'http':
-        path = scope['path']
-        if path in MOUNTS:
-            path += '/'
-        elif scope['method'] == 'POST' and path in OLD_PATHS:
-            path = OLD_PATHS[path]
-        scope = {**scope, 'path': path, 'raw_path': path.encode()}
-    await api(scope, receive, send)
+    if scope['type'] != 'http':
+        await api(scope, receive, send)
+        return
+
+    requested = scope['path']
+    path = requested
+    if path in MOUNTS:
+        path += '/'
+    elif scope['method'] == 'POST' and path in OLD_PATHS:
+        path = OLD_PATHS[path]
+    scope = {**scope, 'path': path, 'raw_path': path.encode()}
+
+    # The body is read here so the log can name the board and item, then
+    # handed on to the app unchanged.
+    body = await read_body(receive)
+    replayed = False
+
+    async def replay():
+        nonlocal replayed
+        if not replayed:
+            replayed = True
+            return {'type': 'http.request', 'body': body, 'more_body': False}
+        return await receive()
+
+    status = 500
+
+    async def send_and_record(message):
+        nonlocal status
+        if message['type'] == 'http.response.start':
+            status = message['status']
+        await send(message)
+
+    started = time.monotonic()
+    try:
+        await api(scope, replay, send_and_record)
+    finally:
+        log_request(scope['method'], requested, path, status, time.monotonic() - started, body)
+
+
+async def read_body(receive):
+    chunks = []
+    while True:
+        message = await receive()
+        if message['type'] != 'http.request':
+            break
+        chunks.append(message.get('body', b''))
+        if not message.get('more_body'):
+            break
+    return b''.join(chunks)
+
+
+def log_request(method, requested, path, status, seconds, body):
+    """`POST / -> company_enrichment 200 (12 ms)`, with the board and item in the payload."""
+    routed_to = next((name for prefix, name in APPS.items() if path.startswith(prefix)), None)
+    if routed_to is None:
+        routed_to = 'health check' if path in ('/', '/health') else 'no app'
+
+    if status >= 500:
+        level = logging.ERROR
+    elif status >= 400:
+        level = logging.WARNING
+    elif routed_to == 'health check':
+        level = logging.DEBUG  # monday checks every few seconds; not worth a line each
+    else:
+        level = logging.INFO
+
+    duration_ms = round(seconds * 1000)
+    log.log(
+        level,
+        f'{method} {requested} -> {routed_to} {status} ({duration_ms} ms)',
+        extra={'payload': {
+            'method': method,
+            'path': requested,
+            'routed_to': routed_to,
+            'status': status,
+            'duration_ms': duration_ms,
+            **block_ids(body),
+        }},
+    )
+
+
+def block_ids(body):
+    """boardId / itemId from a block call's body, as both apps read them."""
+    try:
+        data = json.loads(body or b'{}')
+    except ValueError:
+        return {}
+
+    payload = data.get('payload') if isinstance(data, dict) else None
+    payload = payload if isinstance(payload, dict) else {}
+    fields = payload.get('inputFields') or payload.get('inboundFieldValues') or {}
+    if not isinstance(fields, dict):
+        return {}
+
+    ids = {}
+    for key, name in (('boardId', 'board_id'), ('itemId', 'item_id')):
+        value = fields.get(key)
+        if isinstance(value, dict):
+            value = value.get('value') or value.get('id')
+        if value not in (None, ''):
+            ids[name] = str(value)
+    return ids

@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 
 from flask import Flask, request
@@ -28,12 +29,12 @@ def action():
 
     ids = extract_ids(request.get_json(silent=True))
     board_id, item_id = ids['boardId'], ids['itemId']
-    log(f'Action received: boardId={board_id}, itemId={item_id}')
+    log(f'Action received: boardId={board_id}, itemId={item_id}', board_id=board_id, item_id=item_id)
 
     resolved_board_id = board_id or env.default_board_id
-    log(f'Resolved IDs: boardId={resolved_board_id}, itemId={item_id}')
+    log(f'Resolved IDs: boardId={resolved_board_id}, itemId={item_id}', board_id=resolved_board_id, item_id=item_id)
     if resolved_board_id:
-        log(f'Board: {describe_board(resolved_board_id)}')
+        log(f'Board: {describe_board(resolved_board_id)}', board_id=resolved_board_id)
 
     if not resolved_board_id or not item_id:
         return {'error': 'boardId and itemId are required'}, 400
@@ -46,11 +47,14 @@ def action():
 def run_enrichment(board_id, item_id):
     try:
         result = enrich_item(board_id, item_id)
-        log(f"Background enrichment done: {json.dumps(result, separators=(',', ':'), ensure_ascii=False)}")
+        log(f"Background enrichment done: {json.dumps(result, separators=(',', ':'), ensure_ascii=False)}", **result)
     except GraphQLError as error:
-        log_error(f'Background enrichment error: {json.dumps(error.graphql_errors)}')
+        log_error(
+            f'Background enrichment error: {json.dumps(error.graphql_errors)}',
+            board_id=board_id, item_id=item_id, graphql_errors=error.graphql_errors,
+        )
     except Exception as error:
-        log_error(f'Background enrichment error: {error}')
+        log_error(f'Background enrichment error: {error}', board_id=board_id, item_id=item_id, error=str(error))
 
 
 @app.get('/', defaults={'path': ''})
@@ -87,6 +91,9 @@ def extract_ids(body):
 
 
 if __name__ == '__main__':
+    # Run on its own, outside main.py's logging: plain lines on stdout.
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
+
     missing = assert_configured()
     if missing:
         log_error(f"Missing environment variables: {', '.join(missing)}")

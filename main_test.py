@@ -86,3 +86,30 @@ def test_the_two_apps_do_not_answer_each_others_paths(client):
     assert client.post('/', json={}).status_code == 400
     assert client.post('/', json={}).json() == {'error': 'boardId and itemId are required'}
     assert client.post('/unknown', json={}).status_code == 404
+
+
+@pytest.mark.parametrize('path, routed_to', [
+    ('/', 'company_enrichment'),
+    ('/company-enrichment', 'company_enrichment'),
+    ('/customer-name-split', 'customer_name_split'),
+])
+def test_every_request_is_logged_with_the_app_it_reached(client, monkeypatch, caplog, path, routed_to):
+    import index
+
+    monkeypatch.setattr(index, 'enrich_item', lambda board_id, item_id: {'success': True})
+    caplog.set_level('INFO', logger='monday_apps')
+
+    client.post(path, json={'payload': {'inputFields': {'boardId': 5106281544, 'itemId': 42}}}, headers=monday_jwt())
+
+    [line] = [r for r in caplog.records if r.name == 'monday_apps' and r.getMessage().startswith('POST')]
+    assert line.getMessage().startswith(f'POST {path} -> {routed_to} ')
+    assert line.payload['routed_to'] == routed_to
+    assert line.payload['board_id'] == '5106281544'
+    assert line.payload['item_id'] == '42'
+    assert isinstance(line.payload['duration_ms'], int)
+
+
+def test_health_checks_are_not_logged_at_info(client, caplog):
+    caplog.set_level('INFO', logger='monday_apps')
+    client.head('/health')
+    assert not [r for r in caplog.records if r.name == 'monday_apps' and 'health check' in r.getMessage()]

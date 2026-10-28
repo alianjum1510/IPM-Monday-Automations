@@ -1,9 +1,8 @@
 """
 One monday-code server for two apps, each kept unchanged in its own folder:
 
-  company_enrichment/       "Company Enrichment" block    POST /company-enrichment
-  customer_name_split_py/   "Split Customer Name" block   POST /customer-name-split
-                                                          (or its pre-merge URLs: POST /, /monday/split-name)
+  company_enrichment/       "Company Enrichment" block    POST /company-enrichment  (or POST /, as before the merge)
+  customer_name_split_py/   "Split Customer Name" block   POST /customer-name-split (or /monday/split-name)
 
 monday-code gives an app one port (PORT, 8080), so both apps are mounted on
 this one server, each under its own path. GET / answers monday's health check.
@@ -123,11 +122,15 @@ api.mount('/customer-name-split', customer_name_split)
 
 MOUNTS = {'/company-enrichment', '/customer-name-split'}
 
-# The URLs the customer name split app answered before the merge: its block's
-# Execution URL was the bare Version URL, or that plus /monday/split-name. A
-# block or a queued monday retry still on one of them reaches the name split
-# instead of a 405. The enrichment block uses /company-enrichment.
-CUSTOMER_NAME_SPLIT_OLD_PATHS = {'/', '/monday/split-name'}
+# The URLs each app answered before the merge. This monday app is Company
+# Enrichment's, and its block's Execution URL is the bare Version URL - so a
+# POST to "/" is the enrichment block and stays the enrichment. The name split
+# came from another app; its /monday/split-name URL is kept for a block set up
+# the way its old README said.
+OLD_PATHS = {
+    '/': '/company-enrichment/',
+    '/monday/split-name': '/customer-name-split/monday/split-name',
+}
 
 
 async def app(scope, receive, send):
@@ -141,7 +144,7 @@ async def app(scope, receive, send):
         path = scope['path']
         if path in MOUNTS:
             path += '/'
-        elif scope['method'] == 'POST' and path in CUSTOMER_NAME_SPLIT_OLD_PATHS:
-            path = '/customer-name-split' + path
+        elif scope['method'] == 'POST' and path in OLD_PATHS:
+            path = OLD_PATHS[path]
         scope = {**scope, 'path': path, 'raw_path': path.encode()}
     await api(scope, receive, send)

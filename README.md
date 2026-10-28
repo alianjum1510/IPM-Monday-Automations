@@ -24,7 +24,8 @@ the URL picks the app:
 | --- | --- | --- |
 | `POST /company-enrichment` | `company_enrichment/` | the **Company Enrichment** block |
 | `POST /customer-name-split` (or `/customer-name-split/monday/split-name`) | `customer_name_split_py/` | the **Split Customer Name** block |
-| `POST /`, `POST /monday/split-name` | `customer_name_split_py/` | the name split's URLs from before the merge, still answered |
+| `POST /` | `company_enrichment/` | the enrichment block's URL from before the merge (the bare Version URL), still answered |
+| `POST /monday/split-name` | `customer_name_split_py/` | the name split's alternative URL from before the merge |
 | `GET /`, `GET /health` | health check | — |
 
 So a block's Execution URL is `<Version URL>/company-enrichment` or

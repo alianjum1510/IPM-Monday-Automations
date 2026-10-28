@@ -32,7 +32,11 @@ def test_health_check_answers_get_and_head(client, path):
     assert client.head(path).status_code == 200
 
 
-@pytest.mark.parametrize('path', ['/company-enrichment', '/company-enrichment/'])
+@pytest.mark.parametrize('path', [
+    '/company-enrichment', '/company-enrichment/',
+    # The enrichment block's URL before the merge: the bare Version URL.
+    '/',
+])
 def test_company_enrichment_acks_and_runs_in_the_background(client, monkeypatch, path):
     import index
 
@@ -62,8 +66,8 @@ def test_company_enrichment_still_requires_an_item(client):
 
 @pytest.mark.parametrize('path', [
     '/customer-name-split', '/customer-name-split/', '/customer-name-split/monday/split-name',
-    # The URLs the name split answered before the merge.
-    '/', '/monday/split-name',
+    # The name split's URL before the merge, as its old README set it up.
+    '/monday/split-name',
 ])
 def test_customer_name_split_is_reached_and_checks_the_monday_jwt(client, path):
     # No JWT: the name split app's own auth rejects it.
@@ -78,4 +82,7 @@ def test_customer_name_split_is_reached_and_checks_the_monday_jwt(client, path):
 def test_the_two_apps_do_not_answer_each_others_paths(client):
     # The enrichment block posts no JWT, so a request reaching the name split would be a 401.
     assert client.post('/company-enrichment', json={}).status_code == 400
+    # The bare URL is the enrichment block's, and must never run the name split.
+    assert client.post('/', json={}).status_code == 400
+    assert client.post('/', json={}).json() == {'error': 'boardId and itemId are required'}
     assert client.post('/unknown', json={}).status_code == 404

@@ -1,5 +1,4 @@
-flask==3.0.3
-requests==2.32.3
-waitress==3.0.2
-regex==2024.11.6
-babel==2.16.0
+# Each app keeps its own list; a2wsgi runs the Flask enrichment app inside the FastAPI server.
+-r company_enrichment/requirements.txt
+-r customer_name_split_py/requirements.txt
+a2wsgi==1.10.10

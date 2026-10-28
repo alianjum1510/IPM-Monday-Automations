@@ -1,4 +1,9 @@
 # Dependencies
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 node_modules/
 
 # Secrets - MONDAY_API_TOKEN / OPENAI_API_KEY live on the monday app, never in git

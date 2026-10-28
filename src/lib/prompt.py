@@ -1,41 +1,44 @@
-/**
- * The research prompt.
- *
- * The block above `EXTRA FIELDS` is the master prompt as supplied, verbatim -
- * do not reword it, the confidence rules and the source whitelist are the
- * product. The `EXTRA FIELDS` section only adds the structured outputs the
- * board columns need (address parts, phones, company email), because the board
- * stores them as separate columns rather than one address string.
- *
- * `choices` carries the Industry and Job Function taxonomies read off the
- * connected boards. Those two columns are board_relation: the cell links to a
- * taxonomy item, and the item's name is spelled in German with the scoring
- * weight attached to it ("Großhandel (Industrie-; Arbeitsschutz-; ...)"). A free
- * text answer would almost never match, so the exact list is handed to the model
- * and it is asked to echo one line back verbatim. Nothing is ever created on a
- * taxonomy board, so a value outside the list is reported, not invented.
- *
- * `choices.options` carries the labels of the board's dropdown columns, keyed
- * by research field (see optionChoices in lib/mapping.js), so the model picks
- * one of the board's own options instead of wording its own.
- *
- * `country` is the country the lead was classified into from its address
- * before this prompt is built (see lib/country.js). The search is scoped to it
- * before the name is looked up, so a same-named company abroad cannot be picked
- * up instead.
- */
-export function buildPrompt(companyName, address, choices = {}, country = '') {
-  return `Search and classify this German company with VERY IN-DEPTH research.
+"""
+The research prompt.
+
+The block above `EXTRA FIELDS` is the master prompt as supplied, verbatim -
+do not reword it, the confidence rules and the source whitelist are the
+product. The `EXTRA FIELDS` section only adds the structured outputs the
+board columns need (address parts, phones, company email), because the board
+stores them as separate columns rather than one address string.
+
+`choices` carries the Industry and Job Function taxonomies read off the
+connected boards. Those two columns are board_relation: the cell links to a
+taxonomy item, and the item's name is spelled in German with the scoring
+weight attached to it ("Großhandel (Industrie-; Arbeitsschutz-; ...)"). A free
+text answer would almost never match, so the exact list is handed to the model
+and it is asked to echo one line back verbatim. Nothing is ever created on a
+taxonomy board, so a value outside the list is reported, not invented.
+
+`choices['options']` carries the labels of the board's dropdown columns, keyed
+by research field (see option_choices in lib/mapping.py), so the model picks
+one of the board's own options instead of wording its own.
+
+`country` is the country the lead was classified into from its address
+before this prompt is built (see lib/country.py). The search is scoped to it
+before the name is looked up, so a same-named company abroad cannot be picked
+up instead.
+"""
+
+
+def build_prompt(company_name, address, choices=None, country=''):
+    choices = choices or {}
+    return f"""Search and classify this German company with VERY IN-DEPTH research.
 
 CRITICAL INSTRUCTION: You MUST perform AT LEAST 15-20 web searches before providing your final answer. Search multiple sources for each piece of information, especially for VAT number and HRB registration number. Do NOT provide an answer until you have completed thorough research across all available sources.
 
 Input (may contain errors):
 
-Company: ${companyName}
+Company: {company_name}
 
-Address: ${address}
+Address: {address}
 
-Country: ${country || 'not identified - determine it from the address above'}
+Country: {country or 'not identified - determine it from the address above'}
 
 SEARCH SCOPE: The Country line above was classified from the address before this research. Treat it as the country the company is located in and search for the company name only inside it. Restrict every search to that country: include the country in your queries, use that country's official company register, and ignore same-named companies in other countries. If the country is not Germany, use that country's equivalent register and VAT number format wherever the instructions below name German ones. Only if the Country line is not identified and the address gives no country, assume Germany.
 
@@ -90,7 +93,7 @@ VAT_CONFIDENCE Rules:
 MANDATORY: For HANDELSREGISTER_VERIFIED - cross-check the company name, address, and registration number with Handelsregister.de. Verify that the company name, address, and registration number all match exactly. If they match exactly, mark 'HANDELSREGISTER_VERIFIED' as 'Yes'. If not, mark it as 'No'.
 
 6. COMPANY_STATUS:
-Determine the company's status based only on the provided company name (${companyName}). Do NOT consider any related or parent companies when determining status. Cross-check with companyhouse.de, Creditsafe, or other reputable sources. If the company is dissolved, mark it as Dissolved. Possible statuses include:
+Determine the company's status based only on the provided company name ({company_name}). Do NOT consider any related or parent companies when determining status. Cross-check with companyhouse.de, Creditsafe, or other reputable sources. If the company is dissolved, mark it as Dissolved. Possible statuses include:
 
 Active, Inactive, Merged, Dissolved (verified from trusted sources like companyhouse.de or Creditsafe), Liquidated, Bankrupt, Reopened (New Company Register), Acquired, Closed, Suspended, Reorganized, Pending Liquidation, Ceased Operations, Voluntary Deregistration
 
@@ -126,7 +129,7 @@ HANDELSREGISTER_VERIFIED: [Yes/No]
 COMPANY_STATUS: [status with trusted source]
 LINKEDIN_PROFILE: [LinkedIn URL or "Not found"]
 CONFIDENCE: [High/Medium/Low]
-NOTES: [Important findings from cross-checking data, verification process details, list of all sources checked for VAT and HRB numbers, any parent/child companies, holdings, or associated companies if the ${companyName} register number is not found. Mention how many searches were performed.]
+NOTES: [Important findings from cross-checking data, verification process details, list of all sources checked for VAT and HRB numbers, any parent/child companies, holdings, or associated companies if the {company_name} register number is not found. Mention how many searches were performed.]
 
 EXTRA FIELDS (these go into their own board columns - continue the same
 KEY: value format, one per line, immediately after NOTES). Use the verified
@@ -150,84 +153,87 @@ COMPANY_EMAIL: [general company email address from the Impressum or contact page
 MAIN_PHONE: [main switchboard number in international format, e.g. +49 30 1234567]
 MOBILE_NUMBER: [mobile number in international format]
 FAX: [fax number in international format]
-PHONE_TYPE: ${optionHint(choices, 'PHONE_TYPE', 'Landline, Mobile, or VoIP')}
+PHONE_TYPE: {_option_hint(choices, 'PHONE_TYPE', 'Landline, Mobile, or VoIP')}
 CONTACT_NAME: [managing director / primary named contact]
 COMPANY_SIZE: [employee count as a plain integer, no ranges, no text]
 ANNUAL_REVENUE_FIGURE: [latest annual revenue found, in the currency the source states it in - do NOT convert it - as ISO currency code and amount, with the year and source in brackets, e.g. "EUR 30,000,000 (2024, Bundesanzeiger)", "PKR 50 crore (2023, company report)", "USD 10M-50M (estimate, Crunchbase)". A published estimate or range counts. Use the ISO code (PKR, INR), never "Rs". Write "Not found" only if no figure or estimate exists]
-ESTIMATED_ANNUAL_REVENUE: ${optionHint(choices, 'ESTIMATED_ANNUAL_REVENUE', 'revenue band, e.g. "1M-10M EUR"')}
-COMPANY_STRUCTURE: ${optionHint(choices, 'COMPANY_STRUCTURE', 'legal form, e.g. GmbH, AG, e.K., GmbH & Co. KG')}
-OWNERSHIP_TYPE: ${optionHint(choices, 'OWNERSHIP_TYPE', 'Private, Public, Government, Municipality, Non-profit')}
-D_AND_B_NUMBER: [D-U-N-S number, digits only]${optionRules(choices)}${classificationBlock(choices)}`;
-}
+ESTIMATED_ANNUAL_REVENUE: {_option_hint(choices, 'ESTIMATED_ANNUAL_REVENUE', 'revenue band, e.g. "1M-10M EUR"')}
+COMPANY_STRUCTURE: {_option_hint(choices, 'COMPANY_STRUCTURE', 'legal form, e.g. GmbH, AG, e.K., GmbH & Co. KG')}
+OWNERSHIP_TYPE: {_option_hint(choices, 'OWNERSHIP_TYPE', 'Private, Public, Government, Municipality, Non-profit')}
+D_AND_B_NUMBER: [D-U-N-S number, digits only]{_option_rules(choices)}{_classification_block(choices)}"""
 
-/**
- * The placeholder for a dropdown field: the board's own options when they were
- * readable, the old free-text hint otherwise.
- *
- * Those four columns are dropdowns, and only an option the column already has
- * is ever written - the model's own wording ("€25M", "Privately held") was
- * reported as unmatched and the cell fell back to N/A. Listing the exact labels
- * is what lets a researched answer actually land.
- */
-function optionHint(choices, field, fallback) {
-  const options = choices.options?.[field];
-  if (!options?.length) return `[${fallback}]`;
-  return `[choose ONE of: ${options.map((option) => `"${option}"`).join(' | ')} - or "Not found"]`;
-}
 
-/** The rule for the dropdown fields, only when at least one list was readable. */
-function optionRules(choices) {
-  const fields = Object.keys(choices.options || {});
-  if (!fields.length) return '';
+def _option_hint(choices, field, fallback):
+    """
+    The placeholder for a dropdown field: the board's own options when they were
+    readable, the old free-text hint otherwise.
 
-  return `
+    Those four columns are dropdowns, and only an option the column already has
+    is ever written - the model's own wording ("€25M", "Privately held") was
+    reported as unmatched and the cell fell back to N/A. Listing the exact labels
+    is what lets a researched answer actually land.
+    """
+    options = (choices.get('options') or {}).get(field)
+    if not options:
+        return f'[{fallback}]'
+    listed = ' | '.join(f'"{option}"' for option in options)
+    return f'[choose ONE of: {listed} - or "Not found"]'
 
-DROPDOWN FIELDS: ${fields.join(', ')} fill fixed dropdowns on the board. For
+
+def _option_rules(choices):
+    """The rule for the dropdown fields, only when at least one list was readable."""
+    fields = list((choices.get('options') or {}).keys())
+    if not fields:
+        return ''
+
+    return f"""
+
+DROPDOWN FIELDS: {', '.join(fields)} fill fixed dropdowns on the board. For
 each of them, copy ONE of the listed options exactly as written, without the
 quotes. Do NOT reword, translate, combine or invent a value. Pick the option the
 research supports. If the exact value is not listed, choose the CLOSEST option:
 for a revenue band, convert the figure to the band currency and pick the band
 it falls into or the nearest one; for anything else, the option closest in
 meaning, whatever language the options are written in. Write exactly "Not
-found" only when you found nothing at all for that field.`;
-}
+found" only when you found nothing at all for that field."""
 
-/**
- * The two board_relation fields, appended only when the taxonomy was readable.
- *
- * Omitted entirely when a list is empty: asking for a field with no vocabulary
- * behind it invites the model to make one up, and an invented industry cannot be
- * linked anyway.
- */
-function classificationBlock(choices) {
-  const industries = choices.industries || [];
-  const jobFunctions = choices.jobFunctions || [];
-  if (!industries.length && !jobFunctions.length) return '';
 
-  let block = `
+def _classification_block(choices):
+    """
+    The two board_relation fields, appended only when the taxonomy was readable.
+
+    Omitted entirely when a list is empty: asking for a field with no vocabulary
+    behind it invites the model to make one up, and an invented industry cannot be
+    linked anyway.
+    """
+    industries = choices.get('industries') or []
+    job_functions = choices.get('job_functions') or []
+    if not industries and not job_functions:
+        return ''
+
+    block = """
 
 CLASSIFICATION FIELDS (these link to fixed lists on other boards - continue the
 same KEY: value format, one per line). You MUST copy ONE line from the list
 given, character for character, including the German spelling and any bracketed
 text. Do NOT translate, abbreviate, reword or invent a value. If nothing in the
-list genuinely fits, write exactly "Not found".`;
+list genuinely fits, write exactly "Not found"."""
 
-  if (industries.length) {
-    block += `
+    if industries:
+        listed = '\n'.join(f'- {name}' for name in industries)
+        block += f"""
 
-INDUSTRY - choose exactly one of these ${industries.length} values, based on what the
+INDUSTRY - choose exactly one of these {len(industries)} values, based on what the
 company actually does:
-${industries.map((name) => `- ${name}`).join('\n')}`;
-  }
+{listed}"""
 
-  if (jobFunctions.length) {
-    block += `
+    if job_functions:
+        listed = '\n'.join(f'- {name}' for name in job_functions)
+        block += f"""
 
 JOB_FUNCTION - the role of the person named in CONTACT_NAME. Choose exactly one
-of these ${jobFunctions.length} values. If CONTACT_NAME is a managing director or board
+of these {len(job_functions)} values. If CONTACT_NAME is a managing director or board
 member, prefer the matching leadership role:
-${jobFunctions.map((name) => `- ${name}`).join('\n')}`;
-  }
+{listed}"""
 
-  return block;
-}
+    return block

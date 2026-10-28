@@ -19,7 +19,7 @@ different column ids**:
 | 5100825258 | 🟢Warm Lead Mining Board🟢 |
 | 5100463291 | 🔵Lead Mining Board🔵 |
 
-That is why [mapping.js](src/lib/mapping.js) resolves columns **by title**. A
+That is why [mapping.py](src/lib/mapping.py) resolves columns **by title**. A
 column missing from a board is skipped, so one deployment serves both.
 
 ## Provenance
@@ -48,7 +48,7 @@ goes to `Company Email` (`email_mm6a4nxf` / `email_mm6ar88x`).
 | numbers, date, country | left empty | monday parses these into a numeric/ISO value and has nowhere to keep the string `N/A` |
 
 `change_multiple_column_values` is **all-or-nothing**, so one value monday
-dislikes would discard the whole write. [`writeColumns`](src/services/monday.js)
+dislikes would discard the whole write. [`write_columns`](src/services/monday.py)
 absorbs that: it drops the column monday names in the error, logs it, and
 retries the rest. Each run logs `[N/A filled: n, left empty: n]`.
 
@@ -72,7 +72,7 @@ pre-enrichment stage:
 | any `Data Authentication …` variant | proceeds (a re-run) |
 | `Discovery Booked`, `Data Complete`, `Disqualified`, `Nurture List`, `Short Route- Discovery`, anything else | **held** — logged as `lifecycle stage=held at "…"` |
 
-It is an **allowlist** ([`LIFECYCLE_STAGE_SOURCES`](src/lib/mapping.js)), so a
+It is an **allowlist** ([`LIFECYCLE_STAGE_SOURCES`](src/lib/mapping.py)), so a
 downstream label added to the board later is protected without a code change; a
 board whose leads arrive on some other starting stage sets the
 `LIFECYCLE_STAGE_SOURCES` env var. The data columns are written either way —
@@ -101,7 +101,7 @@ that. Same bug put a `DE` option into `Country Code`, which is a list of
 **5. Web-search citations are stripped.**
 `web_search` returns markdown-link citations, so `Contact Name` arrived as
 `Michael Dietzel; Boris Sobot — Vorstand ([svg-sued.de](https://…?utm_source=openai))`.
-[parse.js](src/lib/parse.js) unwraps markdown links, drops `utm_source=openai`,
+[parse.py](src/lib/parse.py) unwraps markdown links, drops `utm_source=openai`,
 and removes parenthesised bare domains — except in the fields whose *job* is to
 cite a source (`HRB_CONFIDENCE`, `COMPANY_STATUS`, `VERIFICATION_SOURCE`,
 `NOTES` …), where the citation is the point.
@@ -136,7 +136,7 @@ roughly 6.8k characters to the prompt.
 
 Matching then follows the same principle as change 4 — **nothing is ever created
 on a taxonomy board**, because an invented industry is a scoring error that looks
-like data. [`matchTaxonomyItem`](src/lib/taxonomy.js) tries, in order:
+like data. [`match_taxonomy_item`](src/lib/taxonomy.py) tries, in order:
 
 1. the name exactly as the board spells it, after folding case, `&`/`und`, and
    umlauts (`ä`→`ae`, `ß`→`ss`), so `industrie und produktion` still reaches
@@ -154,7 +154,7 @@ is worse than no link, because no link is logged and recoverable.
 Four names exist **twice** on the Job Function board with different Role Scores
 behind them — `Geschäftsführer` is 13 on one row and 10 on the other, and
 `Logistikmanager`, `Scrum Master` and `Technikvorstand (CTO)` also collide. Ties
-break to the **lowest item id**, the same "oldest wins" rule `findStatusLabel`
+break to the **lowest item id**, the same "oldest wins" rule `find_status_label`
 uses, so the lead score cannot depend on the order monday returned rows in. Every
 collision is reported in the run log as `ambiguous taxonomy: …`.
 
@@ -166,7 +166,7 @@ matchable without a redeploy and a run normally spends no extra queries on them.
 The model annotated what it found: `Muster GmbH (verified on handelsregister.de)`,
 `Badstraße 1, 12345 Berlin — Hauptsitz; formerly Hauptstraße 3`, or a sentence
 on the next line. The prompt now says those fields take the value only, and
-[parse.js](src/lib/parse.js) enforces it on `CORRECT_NAME`, `CORRECT_ADDRESS`
+[parse.py](src/lib/parse.py) enforces it on `CORRECT_NAME`, `CORRECT_ADDRESS`
 and every address part, whatever the model does:
 
 - bracketed remarks, a tail after `—` / `;` / `|`, a comma segment or sentence
@@ -182,7 +182,7 @@ The name is handled more gently, because `Muster (Deutschland) GmbH` and
 when it reads as a remark or comes after the legal form.
 
 **8. The country is classified from the address first, then the search stays inside it.**
-Before the research, [country.js](src/lib/country.js) settles the lead's country
+Before the research, [country.py](src/lib/country.py) settles the lead's country
 from what the user entered, in this order:
 
 | Step | Signal | Example |
@@ -207,7 +207,7 @@ in its own words (`e.g. "1M-10M EUR"`), so answers rarely matched the board and
 the cell fell back to an `N/A` option that the write itself created. Now:
 
 - the prompt lists each dropdown's **current** options from the board
-  ([`optionChoices`](src/lib/mapping.js)) and the model must copy one exactly
+  ([`option_choices`](src/lib/mapping.py)) and the model must copy one exactly
   or answer `Not found`. A new option added in monday is offered on the next
   run, with no redeploy;
 - dropdowns are written by option **id**, not label text, and the mutation
@@ -223,13 +223,13 @@ the cell fell back to an `N/A` option that the write itself created. Now:
 Text matching only accepts an answer that already spells a band, so `€30 million`
 never reached `10M-50M EUR`. The research now also returns the raw figure
 (`ANNUAL_REVENUE_FIGURE: EUR 30,000,000 (2024)`) and
-[revenue.js](src/lib/revenue.js) places it:
+[revenue.py](src/lib/revenue.py) places it:
 
 1. the bands are read from the column's **current** options: `< 1M EUR` is
    0–1M, `1M-10M EUR` is 1M–10M, `500M+ EUR` is 500M and up. Rename or re-cut
    the bands in monday and the next run uses them;
 2. the figure is converted into the bands' currency, with the day's **ECB
-   rates** ([fx.js](src/services/fx.js), cached 12 hours). A figure in euros on
+   rates** ([fx.py](src/services/fx.py), cached 12 hours). A figure in euros on
    a board whose options are in dollars is converted to dollars first;
 3. it goes into the band that contains it. **A band includes its lower bound and
    excludes its upper one**, so exactly 30M goes to `30M-50M`, never `15M-30M`.
@@ -270,7 +270,7 @@ works so hard to produce.
 
 ## Research
 
-[prompt.js](src/lib/prompt.js) holds the master prompt **verbatim** — the
+[prompt.py](src/lib/prompt.py) holds the master prompt **verbatim** — the
 confidence rules and the source whitelist are the product, so don't reword them.
 It runs through the OpenAI **Responses API with the `web_search` tool**: the
 prompt demands 15–20 live searches against handelsregister.de, unternehmens-
@@ -310,7 +310,7 @@ Rebuilt from the failure modes visible in the old deployment's logs:
   inactive items` when the block fired on a deleted/archived item. Item state is
   now checked first and the run exits cleanly.
 - **One bad column** — a malformed phone or URL used to sink the whole write.
-  `writeColumns` now drops the column monday names in the error and retries.
+  `write_columns` now drops the column monday names in the error and retries.
 - **OpenAI 429** — three retries at 1s / 2s / 4s, same ladder as before.
 - **A lead that advances mid-run** — the stage is re-read before the write and
   held if the lead moved on, so a discovery call booked during a run is not
@@ -322,10 +322,14 @@ Rebuilt from the failure modes visible in the old deployment's logs:
 
 ## Running and deploying
 
+Python 3.10+ (monday-code runs `.mondaycoderc`'s `RUNTIME_VERSION`). The
+`Procfile` starts `python index.py`, which serves the Flask app with waitress.
+
 ```bash
-npm install
-node --test "test/*.test.js"    # parser + mapper against the real board schemas
-npm start                       # :8080
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest                # parser + mapper against the real board schemas
+.venv/bin/python index.py       # :8080
 
 npx @mondaycom/apps-cli code:push -i 16166035 -d .
 npx @mondaycom/apps-cli code:logs -i 16166035 -t console -s history \

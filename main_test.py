@@ -60,7 +60,11 @@ def test_company_enrichment_still_requires_an_item(client):
     assert res.json() == {'error': 'boardId and itemId are required'}
 
 
-@pytest.mark.parametrize('path', ['/customer-name-split', '/customer-name-split/', '/customer-name-split/monday/split-name'])
+@pytest.mark.parametrize('path', [
+    '/customer-name-split', '/customer-name-split/', '/customer-name-split/monday/split-name',
+    # The URLs the name split answered before the merge.
+    '/', '/monday/split-name',
+])
 def test_customer_name_split_is_reached_and_checks_the_monday_jwt(client, path):
     # No JWT: the name split app's own auth rejects it.
     assert client.post(path, json={}).status_code == 401

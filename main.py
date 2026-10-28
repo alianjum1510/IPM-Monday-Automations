@@ -3,7 +3,7 @@ One monday-code server for two apps, each kept unchanged in its own folder:
 
   company_enrichment/       "Company Enrichment" block    POST /company-enrichment
   customer_name_split_py/   "Split Customer Name" block   POST /customer-name-split
-                                                          (or /customer-name-split/monday/split-name)
+                                                          (or its pre-merge URLs: POST /, /monday/split-name)
 
 monday-code gives an app one port (PORT, 8080), so both apps are mounted on
 this one server, each under its own path. GET / answers monday's health check.
@@ -123,6 +123,12 @@ api.mount('/customer-name-split', customer_name_split)
 
 MOUNTS = {'/company-enrichment', '/customer-name-split'}
 
+# The URLs the customer name split app answered before the merge: its block's
+# Execution URL was the bare Version URL, or that plus /monday/split-name. A
+# block or a queued monday retry still on one of them reaches the name split
+# instead of a 405. The enrichment block uses /company-enrichment.
+CUSTOMER_NAME_SPLIT_OLD_PATHS = {'/', '/monday/split-name'}
+
 
 async def app(scope, receive, send):
     """
@@ -131,7 +137,11 @@ async def app(scope, receive, send):
     router would otherwise answer it with a redirect, and a POST from monday
     is not guaranteed to follow one.
     """
-    if scope['type'] == 'http' and scope['path'] in MOUNTS:
-        path = scope['path'] + '/'
+    if scope['type'] == 'http':
+        path = scope['path']
+        if path in MOUNTS:
+            path += '/'
+        elif scope['method'] == 'POST' and path in CUSTOMER_NAME_SPLIT_OLD_PATHS:
+            path = '/customer-name-split' + path
         scope = {**scope, 'path': path, 'raw_path': path.encode()}
     await api(scope, receive, send)

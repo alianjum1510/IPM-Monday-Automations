@@ -5,7 +5,7 @@ The one server in main.py: each block's route reaches its own feature.
 """
 import pytest
 
-from .conftest import BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, block_body, post
+from .conftest import BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, VENDOR_PATHS, block_body, post
 
 
 @pytest.mark.parametrize('path', ['/', '/health'])
@@ -32,16 +32,28 @@ def test_customer_name_split_runs_on_its_routes(client, calls, path):
     assert res.status_code == 200
     assert res.json() == {'outputFields': {}}
     assert calls.split == [(BOARD_ID, 42)]
-    assert calls.enrichment == []
+    assert calls.enrichment == [] and calls.vendor == []
+
+
+@pytest.mark.parametrize('path', VENDOR_PATHS)
+def test_vendor_name_split_runs_on_its_routes(client, calls, path):
+    res = post(client, path)
+
+    assert res.status_code == 200
+    assert res.json() == {'outputFields': {}}
+    assert calls.vendor == [(BOARD_ID, 42)]
+    assert calls.enrichment == [] and calls.split == []
 
 
 def test_the_same_board_and_item_reach_different_features_by_route(client, calls):
     """The board id never picks the feature: one board runs both automations."""
     post(client, '/customer-name-split')
     post(client, '/company-enrichment')
+    post(client, '/vendor-name-split')
 
     assert calls.enrichment_started.wait(5)
     assert calls.split == [(BOARD_ID, 42)]
+    assert calls.vendor == [(BOARD_ID, 42)]
     assert calls.enrichment == [(str(BOARD_ID), '42')]
 
 
@@ -53,7 +65,7 @@ def test_a_payload_cannot_choose_the_feature(client, calls, path):
 
     if path in ENRICHMENT_PATHS:
         assert calls.enrichment_started.wait(5)
-        assert calls.split == []
+        assert calls.split == [] and calls.vendor == []
     else:
         assert calls.enrichment == []
 
@@ -86,7 +98,7 @@ def test_company_enrichment_rejects_an_oversized_body(client, calls):
 def test_unknown_routes_are_404(client, calls, path):
     assert post(client, path).status_code == 404
     assert client.get(path).status_code == 404
-    assert calls.enrichment == [] and calls.split == []
+    assert calls.enrichment == [] and calls.split == [] and calls.vendor == []
 
 
 @pytest.mark.parametrize('path', FEATURE_PATHS)
@@ -105,6 +117,7 @@ def test_health_routes_do_not_accept_posts_to_health(client):
     ('/company-enrichment', 'company_enrichment'),
     ('/customer-name-split', 'customer_name_split'),
     ('/monday/split-name', 'customer_name_split'),
+    ('/vendor-name-split', 'vendor_name_split'),
 ])
 def test_every_request_is_logged_with_the_feature_that_answered(client, calls, caplog, path, routed_to):
     caplog.set_level('INFO', logger='monday_apps')

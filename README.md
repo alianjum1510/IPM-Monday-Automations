@@ -18,13 +18,16 @@ app/
     logging.py                  Logs-page handler, request_id/feature on every line, request log
     blocks.py                   block input helpers, monday's error format
     features.py                 Feature + feature_router(): what every feature route runs
+    name_split.py               the name split rule (100 chars, cut at a word) - every feature that splits a name
+    monday_client.py            async monday GraphQL client: read columns, write in one mutation
     testing.py                  monday JWTs for tests
   api/
     router.py                   FEATURES = [...]: one line per feature
     health.py                   GET/HEAD / and /health
   features/
     company_enrichment/         Company Enrichment block - see its README.md
-    customer_name_split/        Split Customer Name block - see its README.md
+    customer_name_split/        Customer Name Split block (Kunden, Warm Lead) - see its README.md
+    vendor_name_split/          Vendor Name Split block (Vendors board) - see its README.md
   tests/                        routing, authentication, config, logging, integration, independence
 ```
 
@@ -36,14 +39,14 @@ app/
 | `POST /company-enrichment` (and `/company-enrichment/`) | Company Enrichment | monday JWT |
 | `POST /customer-name-split` (and `/customer-name-split/`) | Customer Name Split | monday JWT |
 | `POST /monday/split-name` | Customer Name Split (the old app's URL) | monday JWT |
+| `POST /vendor-name-split` (and `/vendor-name-split/`) | Vendor Name Split | monday JWT |
 | `GET` / `HEAD` `/` and `/health` | health check (`OK`) | none |
 | anything else | 404 | — |
 
-In the Developer Center, each block's **Deployment** section connects this
-app's monday-code deployment and sets the block's **sub-route** (Company
-Enrichment: empty or `/company-enrichment`; Customer Name Split:
-`/customer-name-split`). Do not paste a Version URL into a block — it belongs
-to one version only.
+In the Developer Center, each block's **Execution URL** is the deployment URL
+plus the block's own path: `/company-enrichment`, `/customer-name-split`,
+`/vendor-name-split`. The URL belongs to one app version, so check the blocks'
+Execution URLs whenever a new version is created.
 
 ## Settings
 

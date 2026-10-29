@@ -1,4 +1,4 @@
-from app.features.customer_name_split.split import split_customer_name
+from app.core.name_split import split_customer_name
 
 
 def test_names_at_or_under_100_are_untouched():

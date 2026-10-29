@@ -17,10 +17,10 @@ import logging
 from fastapi.responses import JSONResponse
 
 from app.core.blocks import OK, field, monday_error
+from app.core.monday_client import ColumnValue, MondayApiError, find_column_id, read_columns, write_parts
+from app.core.name_split import split_customer_name
 
-from ..monday import ColumnValue, MondayApiError, find_column_id, read_columns, write_parts
 from ..settings import settings
-from ..split import split_customer_name
 
 log = logging.getLogger("customer_name_split")
 

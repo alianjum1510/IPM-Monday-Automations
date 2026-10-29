@@ -7,10 +7,12 @@ from fastapi import APIRouter
 from app.api import health
 from app.features.company_enrichment.router import FEATURE as company_enrichment
 from app.features.customer_name_split.router import FEATURE as customer_name_split
+from app.features.vendor_name_split.router import FEATURE as vendor_name_split
 
 FEATURES = [
     company_enrichment,
     customer_name_split,
+    vendor_name_split,
 ]
 
 

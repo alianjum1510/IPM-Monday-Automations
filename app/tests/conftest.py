@@ -11,10 +11,12 @@ import main
 from app.core.testing import monday_auth
 from app.features.company_enrichment import service as enrichment_service
 from app.features.customer_name_split import service as split_service
+from app.features.vendor_name_split import service as vendor_service
 
 ENRICHMENT_PATHS = ['/', '/company-enrichment', '/company-enrichment/']
 SPLIT_PATHS = ['/customer-name-split', '/customer-name-split/', '/monday/split-name']
-FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS]
+VENDOR_PATHS = ['/vendor-name-split', '/vendor-name-split/']
+FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS, *VENDOR_PATHS]
 
 BOARD_ID = 5106281544  # Warm Lead Mining Board (Copy): both features run on it
 
@@ -29,10 +31,8 @@ class Calls:
     def __init__(self):
         self.enrichment = []
         self.split = []
+        self.vendor = []
         self.enrichment_started = threading.Event()
-
-    def feature_for(self, path):
-        return 'company_enrichment' if path in ENRICHMENT_PATHS else 'customer_name_split'
 
 
 @pytest.fixture
@@ -48,8 +48,13 @@ def calls(monkeypatch):
         recorded.split.append((board_id, item_id))
         return {'outputFields': {}}
 
+    async def fake_split_vendor_name(board_id, item_id):
+        recorded.vendor.append((board_id, item_id))
+        return {'outputFields': {}}
+
     monkeypatch.setattr(enrichment_service, 'enrich_item', fake_enrich_item)
     monkeypatch.setattr(split_service, 'split_item', fake_split_item)
+    monkeypatch.setattr(vendor_service, 'split_vendor_name', fake_split_vendor_name)
     return recorded
 
 

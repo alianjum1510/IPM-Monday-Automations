@@ -1,4 +1,8 @@
-"""Thin async client for the monday GraphQL calls this app needs: column lookup, read and write."""
+"""
+Thin async client for the monday GraphQL calls the name-split features need:
+column lookup, read and write. Company Enrichment keeps its own client
+(company_enrichment/services/monday.py), which retries rejected columns.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +12,13 @@ from typing import Any
 
 import httpx
 
-from app.core.config import get_secret
+from .config import get_secret, setting
 
-from .settings import settings
+API_URL = "https://api.monday.com/v2"
+
+
+def api_version() -> str:
+    return setting("MONDAY_API_VERSION") or "2025-04"
 
 
 class MondayApiError(Exception):
@@ -30,11 +38,11 @@ async def _gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
         raise MondayApiError("MONDAY_API_TOKEN is not set")
     async with httpx.AsyncClient(timeout=20) as client:
         res = await client.post(
-            settings.api_url,
+            API_URL,
             json={"query": query, "variables": variables},
             headers={
                 "Authorization": api_token,
-                "API-Version": settings.api_version,
+                "API-Version": api_version(),
                 "Content-Type": "application/json",
             },
         )

@@ -320,6 +320,20 @@ Rebuilt from the failure modes visible in the old deployment's logs:
   still land. The prompt drops both fields entirely when a list is empty, rather
   than asking for a value with no vocabulary behind it.
 
+## Company / Customer Name and Name 2
+
+The name split (`customer_name_split`) cuts a name over `MAX_NAME_LENGTH` (100)
+at a word and moves the rest into **Company / Customer Name 2**. Enrichment:
+
+- researches the **whole** name (Name + Name 2);
+- writes the researched name back split the same way (`app/core/name_split.py`):
+  it fits → Name 2 is emptied; over 100 → the rest goes to Name 2;
+- researched **no usable name** → leaves Name and Name 2 as they were (never `N/A`
+  over a real name).
+
+A board without a Name 2 column gets the researched name written whole, as
+before. The run log ends with `name: …` saying which of these happened.
+
 ## Running and deploying
 
 This feature is deployed together with `customer_name_split` as one app: the

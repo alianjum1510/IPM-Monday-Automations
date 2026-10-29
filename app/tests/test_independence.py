@@ -15,6 +15,7 @@ from app.api.router import FEATURES
 from app.core.testing import monday_auth
 from app.features.company_enrichment.router import FEATURE as company_enrichment
 from app.features.customer_name_split.router import FEATURE as customer_name_split
+from app.features.vendor_name_split.router import FEATURE as vendor_name_split
 from main import create_app
 
 from .conftest import block_body
@@ -22,26 +23,31 @@ from .conftest import block_body
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize('feature, other', [
-    ('company_enrichment', 'customer_name_split'),
-    ('customer_name_split', 'company_enrichment'),
-])
-def test_importing_one_feature_does_not_import_the_other(feature, other):
+FEATURE_NAMES = [feature.name for feature in FEATURES]
+
+
+@pytest.mark.parametrize('feature', FEATURE_NAMES)
+def test_importing_one_feature_imports_no_other(feature):
+    others = [name for name in FEATURE_NAMES if name != feature]
     code = (
         f'import sys; import app.features.{feature}.router; '
-        f'assert not [m for m in sys.modules if m.startswith("app.features.{other}")], "imported {other}"'
+        f'loaded = [m for m in sys.modules if m.split(".")[2:3] and m.split(".")[2] in {others!r}]; '
+        f'assert not loaded, loaded'
     )
     subprocess.run([sys.executable, '-c', code], cwd=ROOT, check=True)
 
 
-@pytest.mark.parametrize('feature, own_path, other_path', [
-    (company_enrichment, '/company-enrichment', '/customer-name-split'),
-    (customer_name_split, '/customer-name-split', '/company-enrichment'),
+@pytest.mark.parametrize('feature, own_path', [
+    (company_enrichment, '/company-enrichment'),
+    (customer_name_split, '/customer-name-split'),
+    (vendor_name_split, '/vendor-name-split'),
 ])
-def test_each_feature_runs_alone(calls, feature, own_path, other_path):
+def test_each_feature_runs_alone(calls, feature, own_path):
+    other_paths = {'/company-enrichment', '/customer-name-split', '/vendor-name-split'} - {own_path}
     with TestClient(create_app([feature])) as alone:
         assert alone.post(own_path, json=block_body(), headers=monday_auth(own_path)).status_code == 200
-        assert alone.post(other_path, json=block_body(), headers=monday_auth(other_path)).status_code == 404
+        for other_path in other_paths:
+            assert alone.post(other_path, json=block_body(), headers=monday_auth(other_path)).status_code == 404
         assert alone.get('/health').text == 'OK'
 
 

@@ -19,7 +19,7 @@ from app.core.logging import request_context
 from app.core.testing import monday_auth
 from app.features.company_enrichment.lib import taxonomy
 from app.features.company_enrichment.services import fx
-from app.features.customer_name_split import monday as split_monday
+from app.core import monday_client as split_monday
 
 ENRICHMENT_TESTS = Path(__file__).resolve().parents[1] / 'features' / 'company_enrichment' / 'tests'
 BOARDS = json.loads((ENRICHMENT_TESTS / 'boards.json').read_text())['data']['boards']

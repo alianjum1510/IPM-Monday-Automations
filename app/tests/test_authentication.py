@@ -10,7 +10,7 @@ import pytest
 
 from app.core.testing import TEST_BASE_URL, monday_token
 
-from .conftest import ENRICHMENT_PATHS, FEATURE_PATHS, block_body, post
+from .conftest import ENRICHMENT_PATHS, FEATURE_PATHS, VENDOR_PATHS, block_body, post
 
 OTHER_FEATURE_PATH = {path: '/customer-name-split' if path in ENRICHMENT_PATHS else '/company-enrichment'
                       for path in FEATURE_PATHS}
@@ -20,6 +20,8 @@ def ran(calls, path):
     if path in ENRICHMENT_PATHS:
         # The route starts the thread before it answers, so a short wait is enough either way.
         return calls.enrichment_started.wait(0.5)
+    if path in VENDOR_PATHS:
+        return bool(calls.vendor)
     return bool(calls.split)
 
 

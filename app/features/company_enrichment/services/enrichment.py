@@ -9,6 +9,8 @@ from app.features.company_enrichment.lib.mapping import (
     LIFECYCLE_STAGE_ENRICHED,
     LIFECYCLE_STAGE_SOURCES,
     LIFECYCLE_STAGE_TITLE,
+    NAME_OVERFLOW_TITLE,
+    NAME_TITLE,
     build_column_values,
     may_advance_stage,
     option_choices,
@@ -73,7 +75,13 @@ def enrich_item(requested_board_id, item_id):
         if column:
             text[column['title']] = (value.get('text') or '').strip()
 
-    company_name = text.get('Company / Customer Name') or item.get('name') or ''
+    # A name over MAX_NAME_LENGTH was split by customer_name_split; the research
+    # needs it whole, overflow included.
+    company_name = (
+        ' '.join(part for part in (text.get(NAME_TITLE), text.get(NAME_OVERFLOW_TITLE)) if part)
+        or item.get('name')
+        or ''
+    )
     address = _compose_address(text)
 
     if not company_name and not address:
@@ -117,7 +125,7 @@ def enrich_item(requested_board_id, item_id):
     # Cached for hours, so this is normally free.
     fx = get_rates() if fields.get('ANNUAL_REVENUE_FIGURE') or fields.get('ESTIMATED_ANNUAL_REVENUE') else None
 
-    result = build_column_values(board['columns'], fields, relations, fx)
+    result = build_column_values(board['columns'], fields, relations, fx, max_name_length=env.max_name_length)
     values = result['values']
 
     if env.board_item_delay_ms:
@@ -155,6 +163,15 @@ def enrich_item(requested_board_id, item_id):
         message += ' no matching option: ' + ', '.join(
             f"{entry['title']}=\"{entry['value']}\"" for entry in result['unmatched']
         )
+    # Where the researched name went - or that the lead's own name was kept.
+    if result['name_split']:
+        overflow = result['name_split']['overflow']
+        message += (
+            f" name: {result['name_split']['name_chars']} chars, rest to {NAME_OVERFLOW_TITLE} \"{overflow}\""
+            if overflow else f' name: fits, {NAME_OVERFLOW_TITLE} cleared'
+        )
+    elif NAME_TITLE in result['skipped']:
+        message += ' name: none researched, kept as it was'
     # The model annotated the name or address; the note went to Comments.
     if result['cleaned']:
         message += f" notes removed from: {', '.join(result['cleaned'])}"

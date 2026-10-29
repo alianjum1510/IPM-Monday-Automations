@@ -11,6 +11,7 @@ import json
 import math
 import re
 
+from app.core.name_split import split_customer_name
 from app.features.company_enrichment.lib.parse import REMOVED_REMARKS
 from app.features.company_enrichment.lib.revenue import band_for_figure, format_amount
 from app.features.company_enrichment.lib.taxonomy import match_taxonomy_item
@@ -89,12 +90,21 @@ def may_advance_stage(current_label, sources=None):
     return any(_normalise(source) == current for source in sources)
 
 
+# The company name, and the column the name split (customer_name_split) moves
+# everything past MAX_NAME_LENGTH into. A board without the overflow column gets
+# the researched name written whole, as before.
+NAME_TITLE = 'Company / Customer Name'
+NAME_OVERFLOW_TITLE = 'Company / Customer Name 2'
+MAX_NAME_LENGTH = 100
+
 # title on the board <- field from the research output.
 #
 # `constant` writes a fixed value instead of a researched one.
 COLUMN_PLAN = [
     {'title': LIFECYCLE_STAGE_TITLE, 'constant': LIFECYCLE_STAGE_ENRICHED, 'match_prefix': LIFECYCLE_STAGE_PREFIX},
-    {'title': 'Company / Customer Name', 'field': 'CORRECT_NAME'},
+    # `keep_when_empty`: no researched name leaves the lead's own name (and the
+    # overflow in NAME_OVERFLOW_TITLE) as it was, instead of writing N/A over it.
+    {'title': NAME_TITLE, 'field': 'CORRECT_NAME', 'keep_when_empty': True},
     {'title': 'Full Address', 'field': 'CORRECT_ADDRESS'},
     {'title': 'Address Line 1', 'field': 'ADDRESS_LINE_1'},
     {'title': 'Address Line 2', 'field': 'ADDRESS_LINE_2'},
@@ -207,7 +217,7 @@ def option_choices(columns):
 EMAIL_RE = re.compile(r'[^\s@]+@[^\s@]+\.[^\s@]{2,}')
 
 
-def build_column_values(columns, fields, relations=None, fx=None):
+def build_column_values(columns, fields, relations=None, fx=None, max_name_length=MAX_NAME_LENGTH):
     """
     Builds the `column_values` payload.
 
@@ -223,9 +233,12 @@ def build_column_values(columns, fields, relations=None, fx=None):
     into the currency of the board's bands. Absent, a figure in another currency
     cannot be placed and the band the model chose is used instead.
 
+    `max_name_length` is where a researched name is split between NAME_TITLE
+    and NAME_OVERFLOW_TITLE (see _split_name).
+
     Returns a dict with: values, filled, skipped, unmatched [{title, value}],
     linked [{title, name, id}], ambiguous [{title, name, ids}], cleaned [title],
-    banded [{title, figure, label?, reason?, ...}].
+    banded [{title, figure, label?, reason?, ...}], name_split ({name_chars, overflow} or None).
     """
     relations = relations or {}
     rates = fx.get('rates') if fx else None
@@ -322,6 +335,10 @@ def build_column_values(columns, fields, relations=None, fx=None):
         if researched and column.get('type') in ('dropdown', 'status'):
             unmatched.append({'title': entry['title'], 'value': researched})
 
+        if entry.get('keep_when_empty'):
+            skipped.append(entry['title'])
+            continue
+
         # Nothing usable for this column - say so in the cell where monday can hold it.
         na_value = _na_value_for(column)
         if na_value is not None:
@@ -329,6 +346,8 @@ def build_column_values(columns, fields, relations=None, fx=None):
             filled.append(entry['title'])
         else:
             skipped.append(entry['title'])
+
+    name_split = _split_name(by_title, values, max_name_length)
 
     notes_column = by_title.get(notes_entry['title']) if notes_entry else None
     if notes_column:
@@ -353,7 +372,46 @@ def build_column_values(columns, fields, relations=None, fx=None):
         'ambiguous': ambiguous,
         'cleaned': cleaned,
         'banded': banded,
+        'name_split': name_split,
     }
+
+
+def _split_name(by_title, values, max_length):
+    """
+    Splits the researched name the way the name split does, so the two columns
+    always agree: up to `max_length` characters (cut at a word) in the name, the
+    rest in the overflow column - which is emptied when the name fits.
+
+    Only when a name was researched and the board has the overflow column.
+    Returns {'name_chars', 'overflow'} for the run log, or None.
+    """
+    name_column = by_title.get(NAME_TITLE)
+    overflow_column = by_title.get(NAME_OVERFLOW_TITLE)
+    if not name_column or not overflow_column or name_column['id'] not in values:
+        return None
+
+    name = _plain_text(name_column, values[name_column['id']])
+    if name is None or overflow_column.get('type') not in ('text', 'long_text'):
+        return None
+
+    result = split_customer_name(name, max_length=max_length)
+    values[name_column['id']] = _text_value(name_column, result.part1)
+    values[overflow_column['id']] = _text_value(overflow_column, result.part2)
+    return {'name_chars': len(result.part1), 'overflow': result.part2}
+
+
+def _plain_text(column, value):
+    """The text of a text / long text value, or None for any other column type."""
+    if column.get('type') == 'text' and isinstance(value, str):
+        return value
+    if column.get('type') == 'long_text' and isinstance(value, dict):
+        return value.get('text')
+    return None
+
+
+def _text_value(column, text):
+    """`text` as a text or long text column takes it; an empty string clears the cell."""
+    return {'text': text} if column.get('type') == 'long_text' else text
 
 
 def _describe_banding(entry, fx_date):

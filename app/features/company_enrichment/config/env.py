@@ -87,6 +87,12 @@ class _Env:
     def board_item_delay_ms(self):
         return _number('BOARD_ITEM_DELAY_MS', 0)
 
+    # Where a researched name is split into Company / Customer Name (2) - the
+    # same limit, and setting, as customer_name_split uses.
+    @property
+    def max_name_length(self):
+        return int(_number('MAX_NAME_LENGTH', 100))
+
     # The stages enrichment may move a lead off, comma-separated. Unset means the
     # default in mapping.py ("Inbound" and the enrichment stage itself); every
     # other stage is held, so a booked discovery call is never overwritten.
@@ -103,7 +109,7 @@ SETTINGS = (
     'MONDAY_API_TOKEN', 'MONDAY_API_KEY', 'MONDAY_API_VERSION',
     'OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_COUNTRY_MODEL', 'OPENAI_TIMEOUT_MS',
     'FX_RATES_URL', 'FX_FALLBACK_URL', 'FX_TTL_MS',
-    'DEFAULT_BOARD_ID', 'BOARD_ITEM_DELAY_MS', 'LIFECYCLE_STAGE_SOURCES', 'TAXONOMY_TTL_MS',
+    'DEFAULT_BOARD_ID', 'BOARD_ITEM_DELAY_MS', 'LIFECYCLE_STAGE_SOURCES', 'TAXONOMY_TTL_MS', 'MAX_NAME_LENGTH',
 )
 
 # Without these a run cannot read the item or research it.

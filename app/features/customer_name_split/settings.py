@@ -13,8 +13,6 @@ def _opt_int(name: str) -> int | None:
 class Settings:
     max_name_length: int = int(os.getenv("MAX_NAME_LENGTH", "100"))
     teil2_max_length: int | None = _opt_int("TEIL2_MAX_LENGTH")
-    api_version: str = os.getenv("MONDAY_API_VERSION", "2025-04")
-    api_url: str = "https://api.monday.com/v2"
 
 
 settings = Settings()

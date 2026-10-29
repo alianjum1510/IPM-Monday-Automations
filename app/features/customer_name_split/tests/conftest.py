@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.testing import TEST_SIGNING_SECRET, monday_auth
-from app.features.customer_name_split import monday
+from app.core import monday_client as monday
 from app.features.customer_name_split.router import FEATURE
 from main import create_app
 

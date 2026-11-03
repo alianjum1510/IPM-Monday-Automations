@@ -217,8 +217,10 @@ def log_request(method, path, state, status, seconds, body):
         level = logging.ERROR
     elif status >= 400:
         level = logging.WARNING
-    elif routed_to == 'health check':
-        level = logging.DEBUG  # monday checks every few seconds; not worth a line each
+    elif routed_to == 'health check' or state.get('quiet'):
+        # monday checks health every few seconds, and a View's page loads its assets on
+        # every open (the route sets request.state.quiet): not worth a line each.
+        level = logging.DEBUG
     else:
         level = logging.INFO
 

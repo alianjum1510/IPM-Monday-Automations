@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import main
 from app.core.testing import monday_auth
+from app.features.address_validator import service as address_service
 from app.features.company_enrichment import service as enrichment_service
 from app.features.customer_name_split import service as split_service
 from app.features.vendor_name_split import service as vendor_service
@@ -16,7 +17,14 @@ from app.features.vendor_name_split import service as vendor_service
 ENRICHMENT_PATHS = ['/', '/company-enrichment', '/company-enrichment/']
 SPLIT_PATHS = ['/customer-name-split', '/customer-name-split/', '/monday/split-name']
 VENDOR_PATHS = ['/vendor-name-split', '/vendor-name-split/']
-FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS, *VENDOR_PATHS]
+# path -> the mode its route fixes (None: auto)
+ADDRESS_MODES = {
+    '/address-validator/fill': 'address', '/address-validator/fill/': 'address',
+    '/address-validator/validate': 'fields', '/address-validator/validate/': 'fields',
+    '/address-validator': None, '/address-validator/': None,
+}
+ADDRESS_PATHS = list(ADDRESS_MODES)
+FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS, *VENDOR_PATHS, *ADDRESS_PATHS]
 
 BOARD_ID = 5106281544  # Warm Lead Mining Board (Copy): both features run on it
 
@@ -32,6 +40,7 @@ class Calls:
         self.enrichment = []
         self.split = []
         self.vendor = []
+        self.address = []
         self.enrichment_started = threading.Event()
 
 
@@ -52,7 +61,12 @@ def calls(monkeypatch):
         recorded.vendor.append((board_id, item_id))
         return {'outputFields': {}}
 
+    def fake_address_action(payload, mode, token):
+        recorded.address.append(mode)
+        return {'success': True}
+
     monkeypatch.setattr(enrichment_service, 'enrich_item', fake_enrich_item)
+    monkeypatch.setattr(address_service, 'action', fake_address_action)
     monkeypatch.setattr(split_service, 'split_item', fake_split_item)
     monkeypatch.setattr(vendor_service, 'split_vendor_name', fake_split_vendor_name)
     return recorded

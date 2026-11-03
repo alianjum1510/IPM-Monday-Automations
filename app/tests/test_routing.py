@@ -5,7 +5,10 @@ The one server in main.py: each block's route reaches its own feature.
 """
 import pytest
 
-from .conftest import BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, VENDOR_PATHS, block_body, post
+from .conftest import (
+    ADDRESS_MODES, ADDRESS_PATHS, BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, VENDOR_PATHS, block_body,
+    post,
+)
 
 
 @pytest.mark.parametrize('path', ['/', '/health'])
@@ -45,15 +48,27 @@ def test_vendor_name_split_runs_on_its_routes(client, calls, path):
     assert calls.enrichment == [] and calls.split == []
 
 
+@pytest.mark.parametrize('path', ADDRESS_PATHS)
+def test_address_validator_runs_its_routes_mode(client, calls, path):
+    res = post(client, path)
+
+    assert res.status_code == 200
+    assert res.json() == {'outputFields': {}}
+    assert calls.address == [ADDRESS_MODES[path]]
+    assert calls.enrichment == [] and calls.split == [] and calls.vendor == []
+
+
 def test_the_same_board_and_item_reach_different_features_by_route(client, calls):
     """The board id never picks the feature: one board runs both automations."""
     post(client, '/customer-name-split')
     post(client, '/company-enrichment')
     post(client, '/vendor-name-split')
+    post(client, '/address-validator/fill')
 
     assert calls.enrichment_started.wait(5)
     assert calls.split == [(BOARD_ID, 42)]
     assert calls.vendor == [(BOARD_ID, 42)]
+    assert calls.address == ['address']
     assert calls.enrichment == [(str(BOARD_ID), '42')]
 
 
@@ -94,11 +109,12 @@ def test_company_enrichment_rejects_an_oversized_body(client, calls):
     assert calls.enrichment == []
 
 
-@pytest.mark.parametrize('path', ['/unknown', '/company-enrichment/extra', '/customer-name-split/monday/split-name'])
+@pytest.mark.parametrize('path', ['/unknown', '/company-enrichment/extra', '/customer-name-split/monday/split-name',
+                                  '/address-validator/extra', '/action/address'])
 def test_unknown_routes_are_404(client, calls, path):
     assert post(client, path).status_code == 404
     assert client.get(path).status_code == 404
-    assert calls.enrichment == [] and calls.split == [] and calls.vendor == []
+    assert calls.enrichment == [] and calls.split == [] and calls.vendor == [] and calls.address == []
 
 
 @pytest.mark.parametrize('path', FEATURE_PATHS)
@@ -118,6 +134,8 @@ def test_health_routes_do_not_accept_posts_to_health(client):
     ('/customer-name-split', 'customer_name_split'),
     ('/monday/split-name', 'customer_name_split'),
     ('/vendor-name-split', 'vendor_name_split'),
+    ('/address-validator/fill', 'address_validator'),
+    ('/address-validator/validate', 'address_validator'),
 ])
 def test_every_request_is_logged_with_the_feature_that_answered(client, calls, caplog, path, routed_to):
     caplog.set_level('INFO', logger='monday_apps')
@@ -151,3 +169,33 @@ def test_health_checks_are_not_logged_at_info(client, caplog):
     caplog.set_level('INFO', logger='monday_apps')
     client.head('/health')
     assert not [r for r in caplog.records if r.name == 'monday_apps' and 'health check' in r.getMessage()]
+
+
+# ---------- Comment Builder (Item View) beside the blocks ----------
+
+def test_the_item_view_page_is_on_its_own_route_and_root_stays_the_health_check(client):
+    assert client.get('/').text == 'OK'
+    page = client.get('/comment-builder')
+    assert page.status_code == 200
+    assert page.headers['content-type'] == 'text/html; charset=utf-8'
+
+
+def test_the_item_views_session_token_opens_no_block(client, calls):
+    from app.core.testing import session_auth
+
+    for path in FEATURE_PATHS:
+        assert client.post(path, json=block_body(), headers=session_auth()).status_code == 401
+    assert calls.enrichment == [] and calls.split == [] and calls.vendor == [] and calls.address == []
+
+
+@pytest.mark.parametrize('path', FEATURE_PATHS)
+def test_a_blocks_jwt_opens_no_item_view_api(client, path):
+    res = post(client, '/api/ai/write', json={'prompt': 'x'}, auth_path=path)
+    assert res.status_code == 401
+
+
+def test_item_view_calls_are_logged_with_their_feature(client, caplog):
+    caplog.set_level('INFO', logger='monday_apps')
+    client.post('/api/ai/write', json={'prompt': 'x'})
+    [line] = [r for r in caplog.records if r.name == 'monday_apps' and r.getMessage().startswith('POST')]
+    assert line.getMessage().startswith('POST /api/ai/write -> comment_builder 401 ')

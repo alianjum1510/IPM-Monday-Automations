@@ -5,12 +5,14 @@ import os
 import pytest
 
 from app.core import config
-from app.core.testing import TEST_BASE_URL, TEST_SIGNING_SECRET
+from app.core.testing import TEST_BASE_URL, TEST_CLIENT_SECRET, TEST_SIGNING_SECRET
 
 os.environ.setdefault('MONDAY_SIGNING_SECRET', TEST_SIGNING_SECRET)
 os.environ.setdefault('MONDAY_JWT_AUDIENCE_BASE_URLS', TEST_BASE_URL)
 os.environ.setdefault('MONDAY_API_TOKEN', 'test-api-token')
 os.environ.setdefault('OPENAI_API_KEY', 'test-openai-key')
+os.environ.setdefault('MONDAY_CLIENT_SECRET', TEST_CLIENT_SECRET)
+os.environ.setdefault('HERE_API_KEY', 'test-here-key')
 
 
 @pytest.fixture(autouse=True)

@@ -132,3 +132,23 @@ def test_a_missing_key_is_looked_up_again_on_the_next_request(client, calls, mon
 
     fake_monday_code(monkeypatch, {'MONDAY_API_TOKEN': 'token-added-later'})
     assert post(client, path).status_code == 200
+
+
+def test_startup_checks_the_item_views_client_secret_not_the_blocks_settings(monkeypatch, caplog):
+    caplog.set_level('INFO')
+    monkeypatch.delenv('MONDAY_CLIENT_SECRET')
+    monkeypatch.delenv('MONDAY_JWT_AUDIENCE_BASE_URLS')
+
+    messages = [r.getMessage() for r in startup_lines(caplog)]
+
+    assert 'Missing environment variables (comment_builder): MONDAY_CLIENT_SECRET' in messages
+    assert 'Missing environment variables (vendor_name_split): MONDAY_JWT_AUDIENCE_BASE_URLS' in messages
+
+
+def test_the_blocks_do_not_need_the_item_views_client_secret(monkeypatch, caplog):
+    caplog.set_level('INFO')
+    monkeypatch.delenv('MONDAY_CLIENT_SECRET')
+
+    messages = [r.getMessage() for r in startup_lines(caplog)]
+    for feature in ('company_enrichment', 'customer_name_split', 'vendor_name_split', 'address_validator'):
+        assert f'Config OK ({feature})' in messages

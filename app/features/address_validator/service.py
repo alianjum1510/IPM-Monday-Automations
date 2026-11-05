@@ -1,5 +1,5 @@
 """
-Address Master boards (5063711037, 5090777446): fills a row's address columns
+Address Master boards (5063711037, 5090777446, 5099246179, 5094089644): fills a row's address columns
 from the HERE Geocoding API. Ported from the old app's main.py; the rules are
 unchanged.
 
@@ -29,9 +29,15 @@ REQUIRED_SETTINGS = {
     "HERE_API_KEY": ("HERE_API_KEY",),
 }
 
-# Output fields written in each mode (keys of the board's column map).
-ADDRESS_MODE_FIELDS = ["address_line_1", "postcode", "city", "district", "state", "country", "latitude", "longitude"]
-FIELDS_MODE_FIELDS = ["city", "district", "state", "country", "latitude", "longitude", "full_address"]
+# Output fields written in each mode (keys of the board's column map). A key the
+# board doesn't map (address_line_2, country_flag on most boards) is skipped.
+ADDRESS_MODE_FIELDS = ["address_line_1", "address_line_2", "postcode", "city", "district", "state", "country",
+                       "country_flag", "latitude", "longitude"]
+FIELDS_MODE_FIELDS = ["address_line_2", "city", "district", "state", "country", "country_flag",
+                      "latitude", "longitude", "full_address"]
+
+# Written only while the column is empty, so a hand-typed value (c/o, Etage) is kept.
+FILL_IF_EMPTY_FIELDS = {"address_line_2"}
 
 
 def _payload(item_id, mode, **fields):
@@ -127,7 +133,10 @@ def build_updates(item, board, addr, field_keys, is_complete):
         value = addr.get(key)
         if not column_id or not value:
             continue
-        if get_column_value(item["column_values"], column_id) == value:
+        current = get_column_value(item["column_values"], column_id)
+        # A country column reads back as its name ("Germany"), not the value written.
+        shown = value.get("countryName") if isinstance(value, dict) else value
+        if current == shown or (key in FILL_IF_EMPTY_FIELDS and current):
             continue
         updates[column_id] = value
 
@@ -136,8 +145,9 @@ def build_updates(item, board, addr, field_keys, is_complete):
         if location:
             updates[cols["location"]] = location
 
+    # A board without an address status column (status None) gets no Done/Stuck.
     label = board["labels"]["done"] if is_complete else board["labels"]["stuck"]
-    if get_column_value(item["column_values"], cols["status"]) != label:
+    if cols.get("status") and get_column_value(item["column_values"], cols["status"]) != label:
         updates[cols["status"]] = {"label": label}
 
     return updates

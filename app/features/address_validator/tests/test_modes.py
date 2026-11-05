@@ -241,3 +241,15 @@ def test_old_logs_wording_is_kept(board, caplog):
     assert messages[0] == f'Item 111 [address]: HERE query "{FULL}" in DEU'
     assert messages[1].startswith("Item 111 [address]: Complete (houseNumber PA, score 1; ")
     assert messages[2] == "Item 111 [fields]: ignoring — no address input changed since this app's last write."
+
+
+def test_the_dev_sandbox_board_has_its_own_location_and_ignores_the_original_boards_overrides(monkeypatch):
+    from ..boards import get_board_config
+
+    monkeypatch.setenv("ADDRESS_COLUMN_LOCATION_ID", "location_original")
+    monkeypatch.setenv("ADDRESS_DONE_STATUS_LABEL", "Erledigt")
+    sandbox = get_board_config("5099246179")
+
+    assert sandbox["columns"]["location"] == "location_mm8m8p0w"
+    assert sandbox["columns"]["full_address"] == "text_mkw9pw3m"
+    assert sandbox["labels"] == {"done": "Done", "stuck": "Stuck"}

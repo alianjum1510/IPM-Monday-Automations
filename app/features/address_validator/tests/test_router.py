@@ -234,3 +234,82 @@ def test_feature_log_lines_carry_the_feature_and_never_a_token(board, caplog):
 def test_the_other_features_routes_are_not_part_of_this_feature(board):
     for path in ("/company-enrichment", "/customer-name-split", "/vendor-name-split"):
         assert client.post(path, json={}, headers=auth(path)).status_code == 404
+
+
+# ---------- Adresszeile 2 (Dev Sandbox board only) ----------
+
+SANDBOX = "5099246179"
+LINE_2 = "text_mkw9et45"
+
+
+def test_fill_writes_the_ortsteil_to_address_line_2_on_the_sandbox_board(board):
+    board.new_item({"text_mkw9pw3m": FULL}, board_id=SANDBOX)
+    assert post(board, FILL).status_code == 200
+
+    assert board.text(LINE_2) == "Wiesdorf"
+    assert board.text("text_mkw9v8an") == "Borsigstraße 15"
+
+
+def test_address_line_2_typed_by_hand_is_kept(board):
+    board.new_item({"text_mkw9pw3m": FULL, LINE_2: "c/o Müller"}, board_id=SANDBOX)
+    assert post(board, FILL).status_code == 200
+
+    assert board.text(LINE_2) == "c/o Müller"
+    assert all(LINE_2 not in m for m in board.mutations)
+
+
+def test_boards_without_address_line_2_never_get_it(board):
+    board.new_item({C["full_address"]: FULL})
+    post(board, FILL)
+
+    assert board.mutations and all(LINE_2 not in m for m in board.mutations)
+
+
+# ---------- ✅Sandbox Address Master Board: no address status column ----------
+
+SANDBOX_EN = "5094089644"
+GET_SALES_AREA = "color_mm0851fj"  # another automation's status on this board - never written
+
+
+def test_board_without_a_status_column_is_filled_and_its_status_left_alone(board):
+    board.new_item({"text_mkw9pw3m": FULL}, board_id=SANDBOX_EN)
+    assert post(board, FILL).status_code == 200
+
+    assert board.text("text_mkw9v8an") == "Borsigstraße 15"
+    assert board.text("text_mkw9et45") == "Wiesdorf"
+    assert all(GET_SALES_AREA not in m for m in board.mutations)
+
+
+def test_stuck_on_a_board_without_a_status_column_writes_nothing(board):
+    board.new_item({"text_mkw9pw3m": "Nowhere 1, 00000 Nirgendwo"}, board_id=SANDBOX_EN)
+    assert post(board, FILL).status_code == 200
+
+    assert board.mutations == []
+
+
+# ---------- country flag column (both sandbox boards) ----------
+
+FLAG = "country_mm2ghytw"
+
+
+@pytest.mark.parametrize("board_id", [SANDBOX, SANDBOX_EN])
+def test_the_country_flag_column_gets_monday_country_value(board, board_id):
+    board.new_item({"text_mkw9pw3m": FULL}, board_id=board_id)
+    assert post(board, FILL).status_code == 200
+
+    assert board.mutations[0][FLAG] == {"countryCode": "DE", "countryName": "Germany"}
+    assert board.text(FLAG) == "Germany"
+
+
+def test_a_country_flag_already_right_is_not_rewritten(board):
+    board.new_item({"text_mkw9pw3m": FULL, FLAG: "Germany"}, board_id=SANDBOX)
+    post(board, FILL)
+
+    assert all(FLAG not in m for m in board.mutations)
+
+
+def test_boards_without_a_flag_column_never_get_it(board):
+    board.new_item({C["full_address"]: FULL})
+    post(board, FILL)
+
+    assert all(FLAG not in m for m in board.mutations)

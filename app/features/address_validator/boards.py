@@ -59,6 +59,47 @@ def boards():
             },
             "labels": {"done": "Complete", "stuck": "Stuck"},
         },
+        # ✅ (Dev) Sandbox Address Master Board. Duplicated from the original, so it kept
+        # its column IDs; only the location column is new.
+        "5099246179": {
+            "columns": {
+                "full_address":   "text_mkw9pw3m",    # ✅Vollständige Adresse (legal) — TRIGGER (mode "address")
+                "address_line_1": "text_mkw9v8an",    # ✅Adresszeile 1 (Legal)        — TRIGGER (mode "fields")
+                "address_line_2": "text_mkw9et45",    # ✅Adresszeile 2 (Legal)        — HERE's Ortsteil, only when empty
+                "postcode":       "text_mkxqtbr0",    # ✅Postleitzahl (legal)         — TRIGGER (mode "fields")
+                "city":           "text_mkyw1a7a",    # ✅Ort
+                "district":       "text_mkx4mpvc",    # ✅Landkreis / Kreis (legal)
+                "state":          "text_mkx5m5c3",    # ✅Bundesland (legal)
+                "country":        "text_mkywm44h",    # Land (text)
+                "country_flag":   "country_mm2ghytw", # ✅Land (country column, flag)
+                "latitude":       "numeric_mkw9x7h5", # ✅Breitengrad (legal)
+                "longitude":      "numeric_mkw94cck", # ✅Längengrad (legal)
+                "location":       "location_mm8m8p0w",
+                "status":         "color_mm0851fj",   # Match Zipcode
+            },
+            "labels": {"done": "Done", "stuck": "Stuck"},
+        },
+        # ✅Sandbox Address Master Board (English columns). Same IDs as the original except
+        # location. Its color_mm0851fj is "Get Sales Area" (one label, "Fetch Sales Area",
+        # used by another automation), so this board has no address status column.
+        "5094089644": {
+            "columns": {
+                "full_address":   "text_mkw9pw3m",    # ✅Complete Address — TRIGGER (mode "address")
+                "address_line_1": "text_mkw9v8an",    # ✅Address Line 1   — TRIGGER (mode "fields")
+                "address_line_2": "text_mkw9et45",    # ✅Address Line 2   — HERE's Ortsteil, only when empty
+                "postcode":       "text_mkxqtbr0",    # ✅Postcode (text)  — TRIGGER (mode "fields")
+                "city":           "text_mkyw1a7a",    # ✅City
+                "district":       "text_mkx4mpvc",    # ✅Province
+                "state":          "text_mkx5m5c3",    # ✅State
+                "country":        "text_mkywm44h",    # Land (text)
+                "country_flag":   "country_mm2ghytw", # ✅Country (country column, flag)
+                "latitude":       "numeric_mkw9x7h5", # ✅Latitude
+                "longitude":      "numeric_mkw94cck", # ✅Longitude
+                "location":       "location_mm4sptqw",
+                "status":         None,
+            },
+            "labels": {"done": "Done", "stuck": "Stuck"},
+        },
     }
 
 

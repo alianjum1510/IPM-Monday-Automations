@@ -65,7 +65,22 @@ worker thread so other features are not blocked. No third-party package is added
 | `ADDRESS_DEFAULT_BOARD_ID` | no | column map used for unknown boards, default `5063711037` |
 
 The old names got an `ADDRESS_` prefix because the deployment is shared: `DEFAULT_BOARD_ID` is
-already another feature's setting. Board `5090777446`'s IDs are fixed in `boards.py`.
+already another feature's setting. The IDs of board `5090777446` and of the Dev Sandbox board
+`5099246179` (same IDs as the original, its own location column) are fixed in `boards.py`.
+
+**✅Sandbox Address Master Board `5094089644`** (English column names) uses the original's IDs
+with its own location column, and has **no status column**: its `color_mm0851fj` is "Get Sales
+Area", another automation's button. A run there fills the columns but writes no Done/Stuck; a Stuck
+run writes nothing and shows only in the Logs.
+
+**Country flag** (boards `5099246179` and `5094089644`, `country_mm2ghytw`): both modes write
+HERE's country as monday's country value, `{"countryCode": "DE", "countryName": "Germany"}`
+(`countries.py` maps HERE's alpha-3 code). Diff-only, like Land; an unknown code is not written.
+
+**Adresszeile 2** (boards `5099246179` and `5094089644`, `text_mkw9et45`): both modes write HERE's `district`
+(the Ortsteil, e.g. `Wiesdorf`) there, but only while the column is empty — a hand-typed `c/o …`
+or `2. Etage` is never overwritten. HERE has no real "line 2"; when it has no Ortsteil, nothing
+is written. Boards that don't map `address_line_2` are unaffected.
 
 ## What changed from the old app
 

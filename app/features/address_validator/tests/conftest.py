@@ -34,7 +34,7 @@ HERE_BORSIG = {
     "address": {
         "label": "Borsigstraße 15, 51381 Leverkusen, Deutschland",
         "countryCode": "DEU", "countryName": "Deutschland",
-        "state": "Nordrhein-Westfalen", "county": "Leverkusen", "city": "Leverkusen",
+        "state": "Nordrhein-Westfalen", "county": "Leverkusen", "city": "Leverkusen", "district": "Wiesdorf",
         "street": "Borsigstraße", "postalCode": "51381", "houseNumber": "15",
     },
     "position": {"lat": 51.0456789, "lng": 7.0123456},
@@ -127,7 +127,7 @@ class FakeBoard:
                 self.mutations.append(values)
                 for cid, v in values.items():
                     col = next(c for c in self.item["column_values"] if c["id"] == cid)
-                    col["text"] = v if isinstance(v, str) else (v.get("label") or v.get("address") or "")
+                    col["text"] = v if isinstance(v, str) else (v.get("label") or v.get("address") or v.get("countryName") or "")
                 return FakeResponse({"data": {"change_multiple_column_values": {"id": self.item["id"]}}})
             return FakeResponse({"data": {"items": [copy.deepcopy(self.item)] if self.item else []}})
         raise AssertionError(f"unexpected request {url}")

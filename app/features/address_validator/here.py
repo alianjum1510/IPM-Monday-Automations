@@ -9,6 +9,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from app.core.config import setting
 
+from .countries import country_value
+
 HERE_GEOCODE_URL = "https://geocode.search.hereapi.com/v1/geocode"
 
 COUNTRY_CODES = {
@@ -102,11 +104,13 @@ def map_here_item(item):
     scoring = item.get("scoring") or {}
     return {
         "address_line_1": " ".join(p for p in (ad.get("street"), ad.get("houseNumber")) if p),
+        "address_line_2": ad.get("district") or "",  # Ortsteil; only boards that map the column get it
         "postcode":  ad.get("postalCode") or "",
         "city":      ad.get("city") or "",
         "district":  ad.get("county") or "",
         "state":     STATE_EN.get(ad.get("state")) or ad.get("state") or "",
         "country":   ad.get("countryName") or "",
+        "country_flag": country_value(ad.get("countryCode")),  # monday country column; only boards that map it
         "latitude":  coord(pos.get("lat")),
         "longitude": coord(pos.get("lng")),
         "label":     ad.get("label") or "",

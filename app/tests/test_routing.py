@@ -6,8 +6,8 @@ The one server in main.py: each block's route reaches its own feature.
 import pytest
 
 from .conftest import (
-    ADDRESS_MODES, ADDRESS_PATHS, BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, VENDOR_PATHS, block_body,
-    post,
+    ADDRESS_MODES, ADDRESS_PATHS, BOARD_ID, ENRICHMENT_PATHS, FEATURE_PATHS, SPLIT_PATHS, VENDOR_PATHS,
+    VENDOR_SEARCH_PATHS, block_body, post,
 )
 
 
@@ -58,17 +58,29 @@ def test_address_validator_runs_its_routes_mode(client, calls, path):
     assert calls.enrichment == [] and calls.split == [] and calls.vendor == []
 
 
+@pytest.mark.parametrize('path', VENDOR_SEARCH_PATHS)
+def test_vendor_search_acks_and_starts_on_its_routes(client, calls, path):
+    res = post(client, path)
+
+    assert res.status_code == 200
+    assert res.json() == {'outputFields': {}}
+    assert calls.vendor_search == [(BOARD_ID, 42)]
+    assert calls.enrichment == [] and calls.split == [] and calls.vendor == [] and calls.address == []
+
+
 def test_the_same_board_and_item_reach_different_features_by_route(client, calls):
     """The board id never picks the feature: one board runs both automations."""
     post(client, '/customer-name-split')
     post(client, '/company-enrichment')
     post(client, '/vendor-name-split')
     post(client, '/address-validator/fill')
+    post(client, '/vendor-search')
 
     assert calls.enrichment_started.wait(5)
     assert calls.split == [(BOARD_ID, 42)]
     assert calls.vendor == [(BOARD_ID, 42)]
     assert calls.address == ['address']
+    assert calls.vendor_search == [(BOARD_ID, 42)]
     assert calls.enrichment == [(str(BOARD_ID), '42')]
 
 
@@ -136,6 +148,7 @@ def test_health_routes_do_not_accept_posts_to_health(client):
     ('/vendor-name-split', 'vendor_name_split'),
     ('/address-validator/fill', 'address_validator'),
     ('/address-validator/validate', 'address_validator'),
+    ('/vendor-search', 'vendor_search'),
 ])
 def test_every_request_is_logged_with_the_feature_that_answered(client, calls, caplog, path, routed_to):
     caplog.set_level('INFO', logger='monday_apps')
@@ -186,6 +199,7 @@ def test_the_item_views_session_token_opens_no_block(client, calls):
     for path in FEATURE_PATHS:
         assert client.post(path, json=block_body(), headers=session_auth()).status_code == 401
     assert calls.enrichment == [] and calls.split == [] and calls.vendor == [] and calls.address == []
+    assert calls.vendor_search == []
 
 
 @pytest.mark.parametrize('path', FEATURE_PATHS)

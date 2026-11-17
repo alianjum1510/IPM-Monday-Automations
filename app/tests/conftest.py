@@ -13,10 +13,12 @@ from app.features.address_validator import service as address_service
 from app.features.company_enrichment import service as enrichment_service
 from app.features.customer_name_split import service as split_service
 from app.features.vendor_name_split import service as vendor_service
+from app.features.vendor_search import service as vendor_search_service
 
 ENRICHMENT_PATHS = ['/', '/company-enrichment', '/company-enrichment/']
 SPLIT_PATHS = ['/customer-name-split', '/customer-name-split/', '/monday/split-name']
 VENDOR_PATHS = ['/vendor-name-split', '/vendor-name-split/']
+VENDOR_SEARCH_PATHS = ['/vendor-search', '/vendor-search/']
 # path -> the mode its route fixes (None: auto)
 ADDRESS_MODES = {
     '/address-validator/fill': 'address', '/address-validator/fill/': 'address',
@@ -24,7 +26,7 @@ ADDRESS_MODES = {
     '/address-validator': None, '/address-validator/': None,
 }
 ADDRESS_PATHS = list(ADDRESS_MODES)
-FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS, *VENDOR_PATHS, *ADDRESS_PATHS]
+FEATURE_PATHS = [*ENRICHMENT_PATHS, *SPLIT_PATHS, *VENDOR_PATHS, *ADDRESS_PATHS, *VENDOR_SEARCH_PATHS]
 
 BOARD_ID = 5106281544  # Warm Lead Mining Board (Copy): both features run on it
 
@@ -41,6 +43,7 @@ class Calls:
         self.split = []
         self.vendor = []
         self.address = []
+        self.vendor_search = []
         self.enrichment_started = threading.Event()
 
 
@@ -69,6 +72,8 @@ def calls(monkeypatch):
     monkeypatch.setattr(address_service, 'action', fake_address_action)
     monkeypatch.setattr(split_service, 'split_item', fake_split_item)
     monkeypatch.setattr(vendor_service, 'split_vendor_name', fake_split_vendor_name)
+    monkeypatch.setattr(vendor_search_service, 'start',
+                        lambda board_id, item_id: recorded.vendor_search.append((board_id, item_id)))
     return recorded
 
 

@@ -18,6 +18,7 @@ from app.features.comment_builder.router import FEATURE as comment_builder
 from app.features.company_enrichment.router import FEATURE as company_enrichment
 from app.features.customer_name_split.router import FEATURE as customer_name_split
 from app.features.vendor_name_split.router import FEATURE as vendor_name_split
+from app.features.vendor_search.router import FEATURE as vendor_search
 from main import create_app
 
 from .conftest import block_body
@@ -26,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 FEATURE_NAMES = [feature.name for feature in FEATURES]
-BLOCK_PATHS = {'/company-enrichment', '/customer-name-split', '/vendor-name-split', '/address-validator/fill'}
+BLOCK_PATHS = {'/company-enrichment', '/customer-name-split', '/vendor-name-split', '/address-validator/fill',
+               '/vendor-search'}
 
 
 @pytest.mark.parametrize('feature', FEATURE_NAMES)
@@ -45,6 +47,7 @@ def test_importing_one_feature_imports_no_other(feature):
     (customer_name_split, '/customer-name-split'),
     (vendor_name_split, '/vendor-name-split'),
     (address_validator, '/address-validator/fill'),
+    (vendor_search, '/vendor-search'),
 ])
 def test_each_feature_runs_alone(calls, feature, own_path):
     other_paths = BLOCK_PATHS - {own_path}
@@ -65,7 +68,7 @@ def test_the_item_view_runs_alone(calls):
 
 
 def test_the_blocks_run_without_the_item_view(calls):
-    blocks = [company_enrichment, customer_name_split, vendor_name_split, address_validator]
+    blocks = [company_enrichment, customer_name_split, vendor_name_split, address_validator, vendor_search]
     with TestClient(create_app(blocks)) as without:
         assert without.get('/comment-builder').status_code == 404
         assert without.post('/vendor-name-split', json=block_body(), headers=monday_auth('/vendor-name-split')).status_code == 200

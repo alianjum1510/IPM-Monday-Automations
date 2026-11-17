@@ -1,0 +1,311 @@
+# Plan — Vendor Search (AI bot that finds German vendors and creates them on the Vendor Mining Board)
+
+- Branch: `add-comment-address-validator`, HEAD `ddf9add Address validator board add`, working tree clean
+- Date: 2026-11-17
+- Status: **implemented locally (2026-11-17), not committed, not deployed.** Suite: 613 passed before,
+  800 passed after (187 new / extended). Step 12.6 (dry run on real products) is ready
+  (`python -m app.features.vendor_search.dry_run "<product>"`) but not run: no API keys on this machine.
+  §13 (Developer Center, deploy) only after an explicit go. No commit, push or `mapps code:push` without
+  an explicit go.
+  Differences from the plan as written: `service.select()` (find + check + rank, no writes) is split out so
+  the dry run shares it; a `dry_run.py` was added; `app/tests/test_authentication.py` and a docstring line in
+  `main.py` also got the new route.
+- **Changed after the first live test (2026-11-17, "Nitrile gloves" on v7):** vendor rows are now **named
+  after the product** (company in Legal Company Name), created in **group 2** with Search Source
+  **"Research Completed"**; the request ends on "Research Completed" **and moves to group 2**, or on
+  "Manual research" and **stays in group 1**. Repeats are matched on Legal Company Name + website. The board
+  automation "Research Completed → move to group 2" stays (Sana's); it does the same move as the code.
+- **Changed after the second live test ("Euro pallets"):** the request row was left empty in group 2. Now
+  the **best vendor is written into the request item itself**, and only the other two are created as new
+  items, so every row in group 2 holds a vendor. If writing into the request fails, that vendor is created
+  as a new item instead. **The code no longer moves the request**: only the board automation "Research
+  Completed → move to group 2" does, so without it a completed request stays in group 1.
+- **Same product, written differently:** "europallets" / "eurppallets" / "Europaletten" count as the same
+  product as "Euro pallets" (code check for case/spaces/hyphens, then one short AI question without web
+  search for typos, plurals and translations). Their vendors are never returned again; vendors of a
+  different product may be. The existing label is reused.
+  Sections below still describe the first design where they differ.
+
+---
+
+## 1. What is being built
+
+A new automation on the **Vendor Mining Board** (`5107912125`, workspace *Dev Sandbox*):
+
+1. A user creates an item in group **"1. Vendor Search in Progress"** (`topics`). The item name is the
+   **product** they need (e.g. "iPhone"). This item is the **request**, not a vendor.
+2. A monday automation — **"When an item is created → Vendor Search for {item} in {board}"** — calls the
+   app. Same pattern as Company Enrichment; the automation is created by us in monday.
+3. The bot searches the web for vendors **based in Germany** that sell exactly that product, picks the
+   **best 3**, and **creates 3 new items** in the same group, one per vendor, with the vendor's data.
+4. The request item's **Search Source** shows the progress:
+   - as soon as the run starts → **"AI Bot"** (the bot is working on it)
+   - when done → **"Research Completed"** (≥1 vendor created) or **"Manual research"** (none found, or
+     the search failed after retries).
+
+The difference from Company Enrichment: enrichment *fills an existing item*; Vendor Search *finds new
+companies and creates items*.
+
+## 2. Decisions (agreed 2026-11-17)
+
+| Topic | Decision |
+| --- | --- |
+| Feature shape | **One new feature module + one new action block** on the existing app (Company Management, 11727119) and the existing deployment. |
+| Other features | **Not changed.** Company Enrichment, Customer Name Split, Vendor Name Split, Address Validator, Comment Builder and `app/core/` stay as they are. The only shared edit is registering the feature (one import + one list entry in `app/api/router.py`) and adding its rows to the app-level tests. |
+| Trigger | monday automation **"When an item is created"** on board 5107912125 → our block. The bot itself ignores anything not in group `topics` or with Search Source already set. |
+| Input | **The item name only.** The Purchase Requirement board is not read. |
+| Search area | **Germany only**, set once: `SEARCH_AREA = "Germany"`. Every vendor must have a verifiable German address. A company located outside Germany is rejected even if it delivers to Germany. |
+| Same product? | Case and extra spaces are ignored: **"iPhone" = "iphone" = " iPhone "**. **"iPhone 15" is a different product.** |
+| Repeat vendors | Checked only against vendor items **on this board** with the same product (same company name or same website). A repeat is skipped and the next best candidate is used. |
+| Deleiver Regions | Regions **inside Germany**: **Bundesweit** + the 16 states in German (Baden-Württemberg, Bayern, Berlin, Brandenburg, Bremen, Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt, Schleswig-Holstein, Thüringen). Only these labels are ever written. |
+| Company Size | **Number of employees.** |
+| Request status | **"AI Bot"** at start → **"Research Completed"** or **"Manual research"** at the end (decided 2026-11-17). |
+| Failed AI call | Retried up to 3 times with growing waits. Only if every retry fails → **"Manual research"**. |
+| Empty data | A field the AI cannot find is **left empty**. Never guessed, never "N/A" (see §9 — "N/A" in an email column is what broke enrichment on Lead Mining Dev). |
+| Search design | Two steps, cost-controlled — §5. |
+
+## 3. The board (verified through the API, 2026-11-17)
+
+Board `5107912125` "Vendor Mining Board". Groups: `topics` "1. Vendor Search in Progress",
+`new_group` "2. Criteria Check & ICP Scoring", `group_mm15apmt` "3. Qualified - Ready for Cold Lead",
+`group_mkwk11fz` "4. Vendor Pool (review date)", `group_mm94yanz` "5. Removed (reason required)".
+
+| Column | ID | Type | Written by the bot |
+| --- | --- | --- | --- |
+| Vendor / Request (item name) | `name` | name | vendor's company name |
+| Search Source | `color_mm95j9rp` | status — *AI Bot, Manual research, Research Completed, Existing vendor, Inbound vendor* | vendor items: **AI Bot**; request: **AI Bot** while running → **Research Completed / Manual research** |
+| Product Categories/ Services | `dropdown_mm9512qn` | dropdown (no labels yet) | the request's product name |
+| Country | `country_mm95yne6` | country | Germany (`DE`) |
+| Legal Company Name | `text_mm96vz3j` | text | ✓ |
+| Complete Address | `text_mm96j9a1` | text | ✓ |
+| VAT ID | `text_mm96mq88` | text | ✓ (`DE` + 9 digits only) |
+| Year Founded | `numeric_mm965zaj` | numbers | ✓ |
+| Company Size | `numeric_mm96dbjz` | numbers | ✓ employees |
+| Company Description | `long_text_mm961fmh` | long text | ✓ |
+| Website | `link_mm943vd3` | link | ✓ |
+| LinkedIn | `link_mm96cqv8` | link | ✓ |
+| Company Email | `email_mm968yx7` | email | ✓ (valid address only) |
+| Company Phone Number | `phone_mm96a01r` | phone | ✓ (+49, country DE) |
+| Name of Contact Person | `text_mm96433x` | text | ✓ |
+| Primary Person Contact Number | `phone_mm96btp9` | phone | ✓ |
+| Vendor Type | `color_mm95t6mt` | status — *Manufacturer, Reseller, Distributor* | ✓ (only these three) |
+| Deleiver Regions | `dropdown_mm96c0jr` | dropdown (no labels yet) | ✓ (fixed list, §2) |
+| Certifications | `dropdown_mm96f573` | dropdown (no labels yet) | ✓ (label created if missing) |
+
+Not touched: Lifecycle Stage, Criteria Passed?, ICP Score, ICP Result (defaults to "To be scored"),
+Review Date, Existing Vendor, Removal Reason, Purchase Request, Catalogue / Documents, Mined by,
+Job Functions and Departments, Industry (and their mirrors).
+
+## 4. Flow of one run
+
+```
+monday: item created on 5107912125
+  └─ POST /vendor-search  {itemId, boardId}          (JWT checked by the shared feature_router)
+       ├─ ack immediately {"outputFields": {}}        (monday times out long before the search ends)
+       └─ background thread:
+            1. read the item: name, group, Search Source
+               - group != "topics"           → stop (log "ignored: not in Vendor Search group")
+               - Search Source has a value   → stop (log "ignored: already handled / created by bot")
+               - item already running        → stop (duplicate trigger)
+            2. request Search Source → "AI Bot"  (shows the bot is working; also blocks a second run)
+               product = item name (trimmed); empty → "Manual research"
+            3. read existing vendors on this board for the same product (Product Categories label,
+               case-insensitive) → their names + website domains
+            4. STEP 1 FIND   — 1 AI call (web search): 8–10 German candidates
+            5. drop candidates that repeat an existing vendor, repeat each other, or are not in Germany
+            6. STEP 2 CHECK  — deep verification of the top candidates, 3 at a time (§5)
+            7. rank the verified vendors (§6), keep the best 3
+            8. create one item per vendor in group "topics" (§7)
+            9. request Search Source "AI Bot" → "Research Completed" (≥1 created) or "Manual research" (0)
+               (also on any unexpected error, so a request is never left on "AI Bot" by a crash the
+               code can catch)
+           10. one summary log line (§8)
+```
+
+Loop safety: every vendor item is created **with Search Source = "AI Bot" already set**, so when the
+"item created" automation fires for it, step 1 ignores it.
+
+## 5. The search — two steps, built for cost and accuracy
+
+Calls use the OpenAI Responses API with the `web_search` tool, the same API Company Enrichment uses.
+
+**Step 1 — Find (1 call).** Prompt: the product, `SEARCH_AREA`, and the names/websites of vendors already
+on the board for this product (so the model doesn't spend slots on them). The model returns a JSON list
+of up to 10 candidates: company name, website, city, postal code, vendor type guess, and **one URL proving
+they sell this exact product**. Rules in the prompt: Germany-based only (German headquarters/Impressum),
+exact product not just the category, manufacturer or official distributor preferred.
+
+**Code filter after Step 1** (no AI cost): drop repeats of existing vendors (normalised name or website
+domain), drop duplicates inside the list, drop any candidate whose postal code / city is not a German
+format. Rank what is left by the Step 1 data.
+
+**Step 2 — Check (1 call per candidate, 3 in parallel).** For the top 3 candidates, a deep verification
+prompt modelled on Company Enrichment's (Impressum, Handelsregister / Unternehmensregister, northdata,
+company website): legal name, full address, VAT ID, year founded, employees, description, LinkedIn,
+company email, phone, contact person and number, delivery regions (Bundesländer / Bundesweit),
+certifications, vendor type, plus `based_in_germany` and the **source URL** for the address.
+
+**Hard Germany gate in code** (not left to the model) — a vendor is accepted only if:
+- country is Germany, and
+- the address has a 5-digit German postal code and a city, and
+- the address was confirmed from an Impressum or a German company register (source URL present).
+
+A candidate that fails is replaced by the next one from the Step 1 list.
+
+**Cost limits:** at most **6 verification calls** per request (3 + up to 3 replacements). Typical run:
+1 find + 3 checks = **4 AI calls**; worst case 7. Model: `VENDOR_SEARCH_MODEL` if set, else
+`OPENAI_MODEL` — the same model enrichment uses — so cost per check ≈ one enrichment run. If Step 1
+returns too few results, no second discovery call is made; the run ends with what it has.
+
+**Retries:** 429, 5xx and timeouts are retried up to 3 times (waits 2 s, 5 s, 10 s). A call that
+still fails: in Step 1 → "Manual research"; in Step 2 → that candidate is skipped.
+
+## 6. Picking the best 3
+
+Among verified vendors, in order:
+1. **Exact product match** — proof URL shows this exact product.
+2. **Verified company data** — legal name, address and VAT ID confirmed from official sources.
+3. **Manufacturer or official distributor** over a small reseller.
+4. **Established** — years in business, employees, active website / LinkedIn.
+5. **Reachable** — company email and phone found.
+
+Fewer than 3 good vendors → only those are created. The list is never filled with weak or unverified
+matches.
+
+## 7. Writing to monday
+
+**Create** each vendor with one `create_item` mutation into group `topics`, `create_labels_if_missing: true`:
+
+| Column | Value sent |
+| --- | --- |
+| name | company name |
+| Search Source | `{"label": "AI Bot"}` |
+| Product Categories | `{"labels": ["<product>"]}` — if a label already exists that matches case-insensitively ("iphone" vs "iPhone"), **its exact spelling is reused**, so no near-duplicate labels are created |
+| Country | `{"countryCode": "DE", "countryName": "Germany"}` |
+| text columns | plain string |
+| Company Description | `{"text": "…"}` (max 2000 chars) |
+| numbers | digits only; an employee **range** ("50–200") is not guessed into one number — left empty |
+| links | `{"url": "https://…", "text": "<domain>"}`; only valid URLs |
+| email | `{"email": "…", "text": "…"}`; only a valid address |
+| phones | `{"phone": "+49…", "countryShortName": "DE"}`; at least 6 digits |
+| Vendor Type | `{"label": "Manufacturer" | "Reseller" | "Distributor"}` or omitted |
+| Deleiver Regions | `{"labels": [...]}` — only labels from the fixed list in §2 |
+| Certifications | `{"labels": [...]}` |
+
+`create_labels_if_missing` is safe for the two status columns because the code only ever sends their
+existing labels.
+
+**If monday rejects one column** (e.g. a value it won't accept): the column it names is dropped and the
+create is retried. **If monday doesn't name the column** (exactly what happened with enrichment's email —
+`error_data` was empty), the create is retried once with only the core columns (name, Search Source,
+Product Categories, Country, Legal Company Name, Complete Address) so the vendor is still created.
+
+**Request item**: two `change_column_value` calls on Search Source — **"AI Bot"** at the start, and
+**"Research Completed"** / **"Manual research"** at the end. It is not moved, not deleted and not filled
+with vendor data.
+
+## 8. Logging
+
+All lines tagged `feature=vendor_search` with `request_id`, `board_id`, `item_id` (the shared logging).
+One summary line per run, e.g.
+
+```
+Vendor search done: product="iPhone", candidates=9, repeats_skipped=1, not_germany=2,
+checked=4, verified=3, created=[3361…, 3361…, 3361…], ai_calls=5, seconds=212, result="Research Completed"
+```
+
+Ignored triggers log why (wrong group / already handled / duplicate trigger).
+
+## 9. Lesson carried over from Company Enrichment
+
+On Lead Mining Board (Dev) enrichment failed with `email is not valid`: an empty company email was
+filled with `"N/A"`, monday rejected it without naming the column, and the whole write was lost. Vendor
+Search therefore never writes placeholders, validates every email/phone/link before sending, and has
+the "no column named" fallback in §7. (The enrichment bug itself is **not** fixed by this plan — it is a
+separate change to a different feature.)
+
+## 10. Files
+
+New — `app/features/vendor_search/`:
+
+| File | Purpose |
+| --- | --- |
+| `__init__.py` | |
+| `router.py` | `POST /vendor-search` (+ trailing slash); reads `itemId`/`boardId`, acks, starts the run; exposes `FEATURE` |
+| `schemas.py` | block input/ack/error models |
+| `settings.py` | `SEARCH_AREA`, board/group/column ids, Search Source labels, region list, limits (10 candidates, 3 vendors, 6 checks), required/optional settings |
+| `service.py` | `start()` (background thread, log context carried over) and `run()` — the flow in §4 |
+| `research.py` | the two OpenAI calls, retries, JSON parsing |
+| `prompts.py` | Step 1 and Step 2 prompts |
+| `matching.py` | product / company-name / domain normalisation, repeat detection, Germany gate |
+| `mapping.py` | verified vendor → `column_values`, all value validation |
+| `monday.py` | read request, read existing vendors (paged), create item with column-drop retry, set status |
+| `README.md` | what it does, the block, the automation, settings, how to test |
+| `tests/` | see §11 |
+
+Edited (additions only):
+
+| File | Change |
+| --- | --- |
+| `app/api/router.py` | import `FEATURE as vendor_search`, add to `FEATURES` |
+| `app/tests/test_routing.py`, `test_independence.py`, `test_config.py`, `conftest.py` | add the vendor_search route / feature rows next to the existing ones |
+
+No new dependencies — `requests`, `httpx` and the shared core already cover it.
+
+## 11. Tests (all external calls mocked; nothing writes to a real board)
+
+- Route: valid call acks and starts a run; missing ids → monday error; malformed JSON; bad/missing JWT → 401.
+- Ignored: item not in `topics`; Search Source already set (incl. "AI Bot"); duplicate trigger.
+- Product matching: "iPhone" = "iphone" = " iPhone "; "iPhone 15" ≠ "iPhone".
+- Repeats: existing "Tech World" for "iPhone" (by name, by website, with/without GmbH, www.) is skipped and replaced.
+- Germany gate: Austrian/Swiss address, missing postal code, no address source → rejected and replaced.
+- Ranking and limits: never more than 3 created; fewer than 3 good → only those; max 6 checks.
+- Mapping: every column's format; bad email/phone/URL/VAT dropped; employee range left empty; region labels outside the list dropped; existing dropdown label spelling reused.
+- monday rejects a named column → dropped and retried; rejection without a column → core-only retry.
+- Request status order: "AI Bot" is written before any search; then "Research Completed" (≥1 created),
+  "Manual research" (0 found), "Manual research" (AI failure after retries), "Manual research" (unexpected error).
+- Independence: the feature imports nothing from other features.
+- Full suite still passes (baseline recorded before any change — see §12 step 0).
+
+## 12. Implementation steps (after "implement")
+
+0. Create a Python 3.12 environment with `requirements.txt` + `requirements-dev.txt` and record the
+   baseline test result. (The repo's `.venv` is Python 3.9 without the dependencies, so the baseline
+   could not be run during planning.)
+1. `settings.py`, `matching.py`, `mapping.py` + their tests.
+2. `prompts.py`, `research.py` + tests with mocked OpenAI.
+3. `monday.py` + tests with mocked GraphQL.
+4. `service.py`, `router.py`, `schemas.py` + tests; register in `app/api/router.py`; app-level test rows.
+5. Full suite; README.
+6. **Local dry run** against the real board in read-only mode (find + check, print what would be
+   created, write nothing) on 2–3 products, to check result quality and measure time/AI calls.
+7. Stop and report. Deployment only after an explicit go.
+
+## 13. monday setup (after an explicit go)
+
+1. Developer Center → Company Management (11727119) → Features → **Create feature → Automation block
+   (action)** "Vendor Search": sentence *"Vendor Search for {Item} in {Board}"*, input fields **itemId**
+   and **boardId** (same as Company Enrichment), URL `/vendor-search`, deployment = the app's monday code.
+2. Optional setting `VENDOR_SEARCH_MODEL` (otherwise `OPENAI_MODEL`). No other new settings —
+   `MONDAY_API_TOKEN`, `OPENAI_API_KEY`, `MONDAY_SIGNING_SECRET` already exist on the app.
+   If `MONDAY_JWT_AUDIENCE_BASE_URLS` is enforced, the new route is covered by the same base URL.
+3. Deploy a **draft version**, then on board 5107912125 create the automation
+   **"When an item is created → Vendor Search for {item} in {board}"**.
+4. Test: create "iPhone" in group 1 → request shows "AI Bot" within seconds → 3 vendor items with
+   Search Source "AI Bot" → request changes to "Research Completed". Create "iphone" → 3 *different* vendors. Create a nonsense product → "Manual research".
+   Check the logs show `feature=vendor_search` on `/vendor-search` and the vendor items' own triggers
+   logged as ignored.
+5. Promote the version.
+
+**Rollback:** turn off the board automation (stops all runs immediately); if needed, remove the block or
+promote the previous app version. No other feature depends on this one.
+
+## 14. Risks and open points
+
+| Risk | Handling |
+| --- | --- |
+| A person adds a vendor by hand in group 1 and leaves Search Source empty → the bot treats its name as a product | Team rule: set Search Source ("Inbound vendor", "Existing vendor", …) when adding a vendor by hand — or add the item with that value already chosen. To confirm with Sana. |
+| Run lost if the server restarts mid-search (background thread, same as enrichment) | The request stays on **"AI Bot"** with no vendors. A request on "AI Bot" for more than ~30 minutes means the run was lost. To retry: create the request again. No queue for now. |
+| AI quality varies by product (very generic or very niche names) | Germany gate + verification in code; local dry run on real products before deploy (step 6). |
+| Time per request | A few minutes expected (3 checks in parallel); measured in the dry run. |
+| Labels on the request side: the board shows "Request (name of item)", the API title is "Vendor" | Column ids are used, not titles, so it does not matter to the bot. |

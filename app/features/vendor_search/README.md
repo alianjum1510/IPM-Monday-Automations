@@ -1,0 +1,81 @@
+# Vendor Search
+
+An automation block on the **Vendor Mining Board** (`5107912125`). A user creates an item in group
+**"1. Vendor Search in Progress"** whose name is a **product** ("iPhone"). The bot finds up to **3 vendors
+based in Germany** that sell exactly that product and creates one item per vendor in the same group.
+
+Full design and decisions: [PLAN-vendor-search.md](../../../PLAN-vendor-search.md).
+
+## The block
+
+| | |
+| --- | --- |
+| Sentence | Vendor Search for {Item} in {Board} |
+| Input fields | `itemId`, `boardId` (same as Company Enrichment) |
+| Route | `POST /vendor-search` |
+| Automation | **When an item is created** → Vendor Search |
+| Answer | `{"outputFields": {}}` at once; the search runs on a background thread |
+
+## What one run does
+
+1. Reads the item. Stops (logs why) if the board isn't in `settings.BOARDS`, the item isn't in group
+   `topics`, Search Source already has a value, or the item is already being searched.
+2. Request **Search Source → "AI Bot"**.
+3. Reads the vendors already on the board for the **same product, however it was written**. They are
+   never returned again; a vendor found for a *different* product may be.
+   - Same apart from case, spaces, hyphens ("Euro pallets" = "europallets" = "Euro-Pallets"): decided in code.
+   - A typo, plural or translation ("eurppallets", "Euro pallet", "Europaletten"): one short AI question
+     without web search, answered only with labels already on the board. A different model, size or
+     variant stays a different product ("iPhone 15" ≠ "iPhone").
+   - The existing Product Categories label is reused, so one product keeps one label.
+4. **Step 1, find** (1 AI call, web search): up to 10 German candidates.
+5. **Step 2, check** (1 AI call each, 3 at a time): Impressum, register, VAT, address, contacts. A vendor
+   is kept only if it is confirmed to sell the exact product **and** passes the Germany check in code
+   (German 5-digit postal code, city, address source URL, nothing foreign in the address). A failure is
+   replaced by the next candidate; at most 6 checks per request.
+6. Ranks the checked vendors (verified data → manufacturer/distributor → established → reachable) and
+   writes the best 3:
+   - the **best one into the request item itself** (so no empty request row is left);
+   - the **other two as new items** in group **2. Criteria Check & ICP Scoring**.
+
+   Every vendor row is **named after the product** (matching the "Request (name of item)" column), with
+   the company in **Legal Company Name**, the product in Product Categories, and Search Source
+   **"Research Completed"**. Repeats are recognised by Legal Company Name and website.
+7. Nothing found (or the AI failed after 3 retries, or any error): the request gets **"Manual research"**
+   and **stays in group 1**, empty, for manual research.
+
+The code never moves the request. The board automation "Search Source changes to Research Completed →
+move to group 2" does: with it on, a completed request goes to group 2; without it, it stays in group 1.
+
+A field the AI can't find is left empty: never guessed, never "N/A".
+
+## Files
+
+| File | |
+| --- | --- |
+| `settings.py` | `SEARCH_AREA`, board, group, column ids, labels, region list, limits |
+| `router.py` | the route |
+| `service.py` | the run; `select()` = find + check + rank, no writes |
+| `research.py`, `prompts.py` | the two OpenAI calls (Responses API + web_search), retries |
+| `matching.py` | same product, repeat vendors, the Germany check |
+| `mapping.py` | vendor → column values, validation of every value |
+| `monday.py` | read request, read existing vendors, create item (with column-drop retry), set status |
+| `dry_run.py` | the real search, printed, nothing written |
+
+## Settings
+
+Required: `MONDAY_API_TOKEN`, `OPENAI_API_KEY` (and the shared `MONDAY_SIGNING_SECRET`), all already on the
+app. Optional: `VENDOR_SEARCH_MODEL` (else `OPENAI_MODEL`, else `gpt-4o`), `OPENAI_TIMEOUT_MS`,
+`MONDAY_API_VERSION`.
+
+To search somewhere other than Germany, change `SEARCH_AREA*` and the region list in `settings.py`.
+To run on another board (e.g. production), add it to `BOARDS` after checking its column ids.
+
+## Test
+
+```
+pytest app/features/vendor_search                 # all mocked, no real board or OpenAI
+MONDAY_API_TOKEN=... OPENAI_API_KEY=... python -m app.features.vendor_search.dry_run "iPhone"
+```
+
+The dry run calls OpenAI for real (about the cost of a real run) but writes nothing to monday.

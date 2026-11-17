@@ -10,7 +10,9 @@ import pytest
 
 from app.core.testing import TEST_BASE_URL, monday_token
 
-from .conftest import ADDRESS_PATHS, ENRICHMENT_PATHS, FEATURE_PATHS, VENDOR_PATHS, block_body, post
+from .conftest import (
+    ADDRESS_PATHS, ENRICHMENT_PATHS, FEATURE_PATHS, VENDOR_PATHS, VENDOR_SEARCH_PATHS, block_body, post,
+)
 
 OTHER_FEATURE_PATH = {path: '/customer-name-split' if path in ENRICHMENT_PATHS else '/company-enrichment'
                       for path in FEATURE_PATHS}
@@ -24,6 +26,8 @@ def ran(calls, path):
         return bool(calls.vendor)
     if path in ADDRESS_PATHS:
         return bool(calls.address)
+    if path in VENDOR_SEARCH_PATHS:
+        return bool(calls.vendor_search)
     return bool(calls.split)
 
 

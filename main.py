@@ -6,6 +6,7 @@ One monday-code server for every automation of this monday app:
   POST /vendor-name-split                        Vendor Name Split block    app/features/vendor_name_split/
   POST /address-validator/fill, /validate        Address Validator blocks   app/features/address_validator/
   GET  /comment-builder, POST /api/ai/*          Comment Builder item view  app/features/comment_builder/
+  POST /vendor-search                            Vendor Search block        app/features/vendor_search/
   GET  /, /health                                health check
 
 The route a block calls decides which feature runs - never the board id or a

@@ -10,6 +10,7 @@ from app.features.comment_builder.router import FEATURE as comment_builder
 from app.features.company_enrichment.router import FEATURE as company_enrichment
 from app.features.customer_name_split.router import FEATURE as customer_name_split
 from app.features.vendor_name_split.router import FEATURE as vendor_name_split
+from app.features.vendor_search.router import FEATURE as vendor_search
 
 FEATURES = [
     company_enrichment,
@@ -17,6 +18,7 @@ FEATURES = [
     vendor_name_split,
     address_validator,
     comment_builder,
+    vendor_search,
 ]
 
 

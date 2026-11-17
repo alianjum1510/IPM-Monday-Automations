@@ -150,5 +150,6 @@ def test_the_blocks_do_not_need_the_item_views_client_secret(monkeypatch, caplog
     monkeypatch.delenv('MONDAY_CLIENT_SECRET')
 
     messages = [r.getMessage() for r in startup_lines(caplog)]
-    for feature in ('company_enrichment', 'customer_name_split', 'vendor_name_split', 'address_validator'):
+    for feature in ('company_enrichment', 'customer_name_split', 'vendor_name_split', 'address_validator',
+                    'vendor_search'):
         assert f'Config OK ({feature})' in messages

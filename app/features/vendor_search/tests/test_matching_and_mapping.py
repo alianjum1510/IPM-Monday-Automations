@@ -1,0 +1,191 @@
+import datetime
+
+import pytest
+
+from app.features.vendor_search import mapping, matching, settings
+
+from .conftest import vendor
+
+
+# ---- matching ------------------------------------------------------------------------------
+
+@pytest.mark.parametrize('a, b, same', [
+    ('iPhone', 'iphone', True),
+    ('iPhone', ' iPhone ', True),
+    ('iPhone', 'IPHONE', True),
+    ('Kühlschrank', 'kuehlschrank', False),
+    ('Kühlschrank', 'kuhlschrank', True),
+    ('iPhone', 'iPhone 15', False),
+    ('Euro pallets', 'europallets', True),
+    ('Euro pallets', 'Euro-Pallets', True),
+    ('Euro pallets', 'eurppallets', False),  # a typo: left to the AI's same-product check
+    ('', '', False),
+])
+def test_same_product(a, b, same):
+    assert matching.same_product(a, b) is same
+
+
+@pytest.mark.parametrize('name, key', [
+    ('Tech World GmbH', 'tech world'),
+    ('Tech-World GmbH & Co. KG', 'tech world'),
+    ('TECH WORLD AG', 'tech world'),
+    ('Müller Handels UG (haftungsbeschränkt)', 'muller handels'),
+    ('Schmidt e.K.', 'schmidt'),
+])
+def test_company_key(name, key):
+    assert matching.company_key(name) == key
+
+
+@pytest.mark.parametrize('url, domain', [
+    ('https://www.Tech-World.de/shop?x=1', 'tech-world.de'),
+    ('tech-world.de', 'tech-world.de'),
+    ('http://tech-world.de:8080/', 'tech-world.de'),
+    ('', ''),
+    ('not a url', ''),
+])
+def test_domain_of(url, domain):
+    assert matching.domain_of(url) == domain
+
+
+def test_existing_repeats_by_name_or_website():
+    known = matching.Existing([{'name': 'Tech World', 'website': 'https://www.tech-world.de'}])
+    assert known.repeats('Tech World GmbH')
+    assert known.repeats('Other Name', 'tech-world.de/impressum')
+    assert not known.repeats('Other Name', 'https://other.de')
+    known.add('Other Name', 'https://other.de')
+    assert known.repeats('OTHER NAME')
+    assert known.repeats(['Unknown', 'Other Name'])
+
+
+def test_a_row_named_after_its_product_is_known_by_its_legal_name_only():
+    known = matching.Existing([{'name': 'Nitrile gloves', 'products': ['Nitrile gloves'],
+                                'legal_name': 'PAUL HARTMANN AG', 'website': ''}])
+    assert known.repeats('Paul Hartmann')
+    assert not known.repeats('Nitrile Gloves')
+
+
+def test_germany_check_passes_a_verified_german_vendor():
+    assert matching.germany_problem(vendor('A')) is None
+
+
+@pytest.mark.parametrize('overrides, problem', [
+    ({'based_in_germany': False}, 'not confirmed as based in Germany'),
+    ({'based_in_germany': 'yes'}, 'not confirmed as based in Germany'),
+    ({'country_code': 'AT'}, 'country is AT'),
+    ({'complete_address': ''}, 'no full address'),
+    ({'postal_code': '1010', 'complete_address': 'Ring 1, 1010 Wien'}, 'no German postal code'),
+    ({'complete_address': 'Hauptstraße 1, 12345 Musterstadt, Österreich'}, 'address is outside Germany'),
+    ({'address_source_url': 'impressum page'}, 'address has no source'),
+])
+def test_germany_check_rejects(overrides, problem):
+    assert matching.germany_problem(vendor('A', **overrides)) == problem
+
+
+@pytest.mark.parametrize('overrides', [{'sells_exact_product': False}, {'product_evidence_url': None}])
+def test_product_check_rejects(overrides):
+    assert matching.product_problem(vendor('A', **overrides))
+
+
+@pytest.mark.parametrize('candidate, ok', [
+    ({'name': 'A', 'country': 'Germany', 'postal_code': '80331'}, True),
+    ({'name': 'A', 'country': 'Deutschland'}, True),
+    ({'name': 'A'}, True),
+    ({'name': 'A', 'country': 'Austria'}, False),
+    ({'name': 'A', 'postal_code': '1010'}, False),
+    ({'name': ''}, False),
+])
+def test_candidate_check(candidate, ok):
+    assert (matching.candidate_problem(candidate) is None) is ok
+
+
+# ---- mapping -------------------------------------------------------------------------------
+
+@pytest.mark.parametrize('value, expected', [
+    ('info@firma.de', 'info@firma.de'),
+    ('mailto:info@firma.de', 'info@firma.de'),
+    ('N/A', ''),
+    ('Not found', ''),
+    ('info(at)firma.de', ''),
+    ('<info@firma.de>', ''),
+    (None, ''),
+])
+def test_email(value, expected):
+    assert mapping.email(value) == expected
+
+
+@pytest.mark.parametrize('value, expected', [
+    ('+49 89 1234567', '+49891234567'),
+    ('089 / 123 45 67', '+49891234567'),
+    ('+49 (0) 89 1234567', '+49891234567'),
+    ('0049 89 1234567', '+49891234567'),
+    ('+43 1 234567', ''),
+    ('123', ''),
+    ('null', ''),
+])
+def test_phone(value, expected):
+    assert mapping.phone(value) == expected
+
+
+@pytest.mark.parametrize('value, expected', [
+    (250, 250), ('250', 250), ('1.200', 1200), ('1,200', 1200), ('ca. 250', 250),
+    ('50-200', None), ('50 – 200', None), ('50 bis 200', None), ('unknown', None), (0, None), (True, None),
+])
+def test_employees(value, expected):
+    assert mapping.employees(value) == expected
+
+
+def test_year_founded_must_be_a_real_year():
+    assert mapping.year_founded(1998) == 1998
+    assert mapping.year_founded('seit 1998') == 1998
+    assert mapping.year_founded(datetime.date.today().year + 1) is None
+    assert mapping.year_founded(98) is None
+
+
+@pytest.mark.parametrize('value, expected', [
+    ('DE123456789', 'DE123456789'), ('DE 123 456 789', 'DE123456789'), ('de123456789', 'DE123456789'),
+    ('ATU12345678', ''), ('DE12345', ''), ('Not found', ''),
+])
+def test_vat_id(value, expected):
+    assert mapping.vat_id(value) == expected
+
+
+@pytest.mark.parametrize('value, expected', [
+    ('Manufacturer', 'Manufacturer'), ('Hersteller', 'Manufacturer'), ('official distributor', 'Distributor'),
+    ('Großhändler', 'Distributor'), ('Fachhändler', 'Reseller'), ('Online shop', 'Reseller'), ('', ''), ('other', ''),
+])
+def test_vendor_type(value, expected):
+    assert mapping.vendor_type(value) == expected
+
+
+def test_regions_only_from_the_list():
+    assert mapping.regions(['Bayern', 'Bavaria', 'Hessen', 'Wien', 'Europe']) == ['Bayern', 'Hessen']
+    assert mapping.regions(['Bayern', 'deutschlandweit']) == ['Bundesweit'], 'nationwide stands alone'
+    assert mapping.regions('NRW; Thüringen') == ['Nordrhein-Westfalen', 'Thüringen']
+    assert mapping.regions(None) == []
+    assert set(settings.REGIONS) >= set(mapping.REGION_ALIASES.values())
+
+
+def test_certifications_trimmed_and_unique():
+    assert mapping.certifications(['ISO 9001', 'iso 9001', '', 'ISO 14001']) == ['ISO 9001', 'ISO 14001']
+
+
+def test_urls():
+    assert mapping.url('www.firma.de') == 'https://www.firma.de'
+    assert mapping.url('N/A') == ''
+    assert mapping.linkedin('https://www.linkedin.com/company/firma') == 'https://www.linkedin.com/company/firma'
+    assert mapping.linkedin('https://www.firma.de') == ''
+
+
+def test_missing_values_are_left_out_never_placeholders():
+    sparse = vendor('A', vat_id=None, year_founded=None, employees='50-200', description='', website='N/A',
+                    linkedin='Not found', company_email='N/A', company_phone=None, contact_person=None,
+                    contact_person_phone='unknown', vendor_type='other', delivery_regions=['Europe'],
+                    certifications=[])
+    values = mapping.column_values(sparse, 'iPhone')
+    assert set(values) == {settings.SEARCH_SOURCE, settings.PRODUCT_CATEGORIES, settings.COUNTRY,
+                           settings.LEGAL_NAME, settings.COMPLETE_ADDRESS}
+    assert 'N/A' not in str(values)
+
+
+def test_item_name_falls_back_to_the_legal_name():
+    assert mapping.item_name(vendor('A', company_name=None)) == 'A GmbH'

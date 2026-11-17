@@ -87,7 +87,8 @@ STEPS
 STRICT RULES
 - Only facts you found in a source. If you cannot find a value, use null. Never guess or estimate.
 - If you cannot find a page on the company's website that shows this exact product, set sells_exact_product to false. Never describe a product the company does not list.
-- employees: the number from a source, or the range exactly as published (e.g. "51-200") if only a range is given.
+- employees: copy the employee number, or the range if only a range is published, exactly as the source states it, and give that page in employees_source_url. Never write a number you did not read in a source for THIS company.
+- The JSON below shows only the format. Do not copy anything from it.
 - vendor_type: exactly one of "Manufacturer", "Distributor", "Reseller", or null.
 - delivery_regions: labels from this list only: {regions}. Use "{settings.NATIONWIDE}" if they deliver to all of {area}.
 
@@ -103,9 +104,10 @@ Answer with JSON only, no other text:
   "sells_exact_product": true or false,
   "product_evidence_url": "https://... page on the company's website showing {product}",
   "product_terms": ["the word(s) that page uses for the product"],
-  "vat_id": "DE123456789 or null",
-  "year_founded": 1990 or null,
-  "employees": 250 or "51-200" or null,
+  "vat_id": "the VAT ID from the Impressum, or null",
+  "year_founded": "the year from a source, or null",
+  "employees": "the employee number or range from the source, or null",
+  "employees_source_url": "https://... the page that states the employee count, or null",
   "description": "2-3 sentences: what the company does and how it relates to {product}",
   "website": "https://...",
   "linkedin": "https://www.linkedin.com/company/... or null",

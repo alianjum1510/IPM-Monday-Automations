@@ -264,7 +264,7 @@ def _rank_key(rank, vendor):
     ))
     kind = TYPE_ORDER.get(mapping.vendor_type(vendor.get('vendor_type')), 3)
     year = mapping.year_founded(vendor.get('year_founded'))
-    size = mapping.employees(vendor.get('employees')) or 0
+    size = mapping.company_size(vendor) or 0
     established = sum((
         bool(year and year <= time.localtime().tm_year - 5),
         size >= 10,

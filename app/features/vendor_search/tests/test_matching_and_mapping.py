@@ -136,8 +136,15 @@ def test_employees_a_number_or_the_middle_of_a_range(value, expected):
 
 
 def test_a_range_is_written_as_its_middle_value_into_company_size():
-    values = mapping.column_values(vendor('A', employees='51-200'), 'iPhone')
-    assert values[settings.COMPANY_SIZE] == '126'
+    values = mapping.column_values(vendor('A', employees='200-3000'), 'iPhone')
+    assert values[settings.COMPANY_SIZE] == '1600'
+
+
+@pytest.mark.parametrize('source', [None, '', 'LinkedIn', 'N/A'])
+def test_company_size_without_a_source_page_is_left_empty(source):
+    """gpt-4o-mini copied the example "51-200" (126) for three companies - no source, no number."""
+    values = mapping.column_values(vendor('A', employees='51-200', employees_source_url=source), 'iPhone')
+    assert settings.COMPANY_SIZE not in values
 
 
 def test_year_founded_must_be_a_real_year():
@@ -148,7 +155,8 @@ def test_year_founded_must_be_a_real_year():
 
 
 @pytest.mark.parametrize('value, expected', [
-    ('DE123456789', 'DE123456789'), ('DE 123 456 789', 'DE123456789'), ('de123456789', 'DE123456789'),
+    ('DE814093141', 'DE814093141'), ('DE 814 093 141', 'DE814093141'), ('de814093141', 'DE814093141'),
+    ('DE123456789', ''), ('DE000000000', ''),
     ('ATU12345678', ''), ('DE12345', ''), ('Not found', ''),
 ])
 def test_vat_id(value, expected):

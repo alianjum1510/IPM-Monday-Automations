@@ -194,7 +194,7 @@ def test_a_vendor_item_is_named_after_the_product_and_created_in_group_2_with_ev
     assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}
     assert values[settings.COUNTRY] == {'countryCode': 'DE', 'countryName': 'Germany'}
     assert values[settings.LEGAL_NAME] == 'Alpha Mobile GmbH'
-    assert values[settings.VAT_ID] == 'DE123456789'
+    assert values[settings.VAT_ID] == 'DE814093141'
     assert values[settings.COMPANY_SIZE] == '250'
     assert values[settings.COMPANY_EMAIL] == {'email': 'info@alpha-mobile.de', 'text': 'info@alpha-mobile.de'}
     assert values[settings.CONTACT_PHONE] == {'phone': '+49897654321', 'countryShortName': 'DE'}

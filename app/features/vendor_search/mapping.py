@@ -75,8 +75,11 @@ def linkedin(value):
 
 
 def vat_id(value):
+    """DE + 9 digits. A placeholder (DE123456789, DE000000000) is not a VAT ID."""
     vat = re.sub(r'[\s.\-]', '', clean(value)).upper()
-    return vat if VAT.match(vat) else ''
+    if not VAT.match(vat) or vat[2:] == '123456789' or len(set(vat[2:])) == 1:
+        return ''
+    return vat
 
 
 def phone(value):
@@ -133,6 +136,17 @@ def employees(value):
         low, high = (int(re.sub(r'\D', '', part)) for part in found.groups())
         return round((low + high) / 2) if 0 < low < high else None
     return whole_number(value)
+
+
+def company_size(vendor):
+    """
+    Company Size, only with the page it was read from. Without a source the
+    number may be copied from the instructions - gpt-4o-mini wrote the example
+    range "51-200" (126) for three different companies.
+    """
+    if not url(vendor.get('employees_source_url')):
+        return None
+    return employees(vendor.get('employees'))
 
 
 def vendor_type(value):
@@ -202,7 +216,7 @@ def column_values(vendor, product_label):
 
     year = year_founded(vendor.get('year_founded'))
     put(settings.YEAR_FOUNDED, str(year) if year else '')
-    size = employees(vendor.get('employees'))  # 250, or 126 for "51-200"
+    size = company_size(vendor)  # 250, or 126 for "51-200"; empty without a source page
     put(settings.COMPANY_SIZE, str(size) if size else '')
 
     description = text(vendor.get('description'), MAX_DESCRIPTION)

@@ -119,7 +119,19 @@ def year_founded(value):
     return year if year and 1700 <= year <= datetime.date.today().year else None
 
 
+RANGE_NUMBERS = re.compile(r'(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(?:-|–|—|bis|to)\s*(\d{1,3}(?:[.,]\d{3})+|\d+)', re.IGNORECASE)
+
+
 def employees(value):
+    """
+    Company Size as one number: the number published (250), or the middle of a
+    published range ("51-200" -> 126), so it fits the Number column.
+    """
+    raw = clean(value) if not isinstance(value, (int, float)) else ''
+    found = RANGE_NUMBERS.search(raw) if raw else None
+    if found:
+        low, high = (int(re.sub(r'\D', '', part)) for part in found.groups())
+        return round((low + high) / 2) if 0 < low < high else None
     return whole_number(value)
 
 
@@ -145,13 +157,18 @@ def _as_list(value):
 
 
 def regions(value):
-    """Only labels from settings.REGIONS. 'Bundesweit' covers every state, so it stands alone."""
+    """
+    Only labels from settings.REGIONS. 'Bundesweit' covers every state, so it stands
+    alone - also when the answer lists all 16 states one by one.
+    """
     found = []
     for entry in _as_list(value):
         label = REGION_ALIASES.get(_fold(clean(entry)))
         if label and label not in found:
             found.append(label)
-    return [settings.NATIONWIDE] if settings.NATIONWIDE in found else found
+    if settings.NATIONWIDE in found or set(settings.STATES) <= set(found):
+        return [settings.NATIONWIDE]
+    return found
 
 
 def certifications(value):
@@ -185,7 +202,7 @@ def column_values(vendor, product_label):
 
     year = year_founded(vendor.get('year_founded'))
     put(settings.YEAR_FOUNDED, str(year) if year else '')
-    size = employees(vendor.get('employees'))
+    size = employees(vendor.get('employees'))  # 250, or 126 for "51-200"
     put(settings.COMPANY_SIZE, str(size) if size else '')
 
     description = text(vendor.get('description'), MAX_DESCRIPTION)

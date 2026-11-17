@@ -20,7 +20,7 @@ import logging
 import threading
 import time
 
-from . import mapping, matching, monday, research, settings
+from . import mapping, matching, monday, pages, research, settings
 
 log = logging.getLogger('vendor_search')
 
@@ -189,7 +189,8 @@ def select(board_id, product):
             if error:
                 stats['rejected'].append(f'{who}: check failed ({error})')
                 continue
-            problem = matching.germany_problem(vendor) or matching.product_problem(vendor) or _name_problem(vendor)
+            problem = (matching.germany_problem(vendor) or matching.product_problem(vendor) or _name_problem(vendor)
+                       or pages.product_page_problem(vendor, product))
             names = [mapping.item_name(vendor), vendor.get('legal_name'), candidate.get('name')]
             if not problem and known.repeats(names, vendor.get('website')):
                 stats['repeats_skipped'] += 1

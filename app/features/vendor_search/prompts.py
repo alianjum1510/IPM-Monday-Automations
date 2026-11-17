@@ -78,13 +78,16 @@ STEPS
 1. Find the company's official website and its Impressum page. Read the legal name, full address, VAT ID (USt-IdNr.), register entry, email and phone from the Impressum.
 2. Confirm the legal name and address in the company register: handelsregister.de, unternehmensregister.de or northdata.de.
 3. Confirm the company is based in {area}: its registered office / headquarters must have a {area} address with a 5-digit postal code. A company located outside {area} does not qualify, even if it delivers to {area}.
-4. Confirm it sells exactly "{product}" (not only the general category): give the URL of a page that shows it.
-5. Find: year founded, number of employees, LinkedIn company page, a general company email and phone, a named contact person (sales / purchasing / managing director) with their direct phone if published, the regions in {area} it delivers to, and its certifications (e.g. ISO 9001).
-6. VAT IDs in {area} start with "DE" followed by 9 digits.
+4. Confirm it sells exactly "{product}" (not only the general category): give the URL of a page ON THE COMPANY'S OWN WEBSITE that shows it, and the exact word(s) that page uses for the product (often German, e.g. "Industriereiniger").
+5. LinkedIn: search for "site:linkedin.com/company" together with the company name, and give the company page URL.
+6. Employees: look on the LinkedIn company page ("Company size" / "Unternehmensgröße"), northdata.de, the company website ("Über uns", "Unternehmen", "Karriere") and press articles.
+7. Also find: year founded, a general company email and phone, a named contact person (sales / purchasing / managing director) with their direct phone if published, the regions in {area} it delivers to, and its certifications (e.g. ISO 9001).
+8. VAT IDs in {area} start with "DE" followed by 9 digits.
 
 STRICT RULES
 - Only facts you found in a source. If you cannot find a value, use null. Never guess or estimate.
-- employees: a single number from a source. If only a range is published (e.g. "50-200"), use null.
+- If you cannot find a page on the company's website that shows this exact product, set sells_exact_product to false. Never describe a product the company does not list.
+- employees: the number from a source, or the range exactly as published (e.g. "51-200") if only a range is given.
 - vendor_type: exactly one of "Manufacturer", "Distributor", "Reseller", or null.
 - delivery_regions: labels from this list only: {regions}. Use "{settings.NATIONWIDE}" if they deliver to all of {area}.
 
@@ -98,10 +101,11 @@ Answer with JSON only, no other text:
   "based_in_germany": true or false,
   "address_source_url": "https://... Impressum or register page with this address",
   "sells_exact_product": true or false,
-  "product_evidence_url": "https://... page showing {product}",
+  "product_evidence_url": "https://... page on the company's website showing {product}",
+  "product_terms": ["the word(s) that page uses for the product"],
   "vat_id": "DE123456789 or null",
   "year_founded": 1990 or null,
-  "employees": 250 or null,
+  "employees": 250 or "51-200" or null,
   "description": "2-3 sentences: what the company does and how it relates to {product}",
   "website": "https://...",
   "linkedin": "https://www.linkedin.com/company/... or null",

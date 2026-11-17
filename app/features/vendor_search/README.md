@@ -49,6 +49,15 @@ move to group 2" does: with it on, a completed request goes to group 2; without 
 
 A field the AI can't find is left empty: never guessed, never "N/A".
 
+**Product page check** ([pages.py](pages.py)): the code opens the page the AI gives as proof. The vendor
+is rejected (and replaced by the next candidate) when that page is on another website (a marketplace),
+doesn't exist (404 / unknown host), or mentions neither the request's words nor the word the AI says the
+page uses for the product. This stops invented products (gpt-4o-mini described a "zzqlorp 8812 fuel
+pump"). A page that is blocked, too slow or built by JavaScript can't be read, and is not rejected.
+
+**Company Size** is the number published (250), or the middle of a published range ("51-200" → 126).
+**Deleiver Regions**: all 16 states listed one by one become "Bundesweit".
+
 ## Files
 
 | File | |
@@ -58,6 +67,7 @@ A field the AI can't find is left empty: never guessed, never "N/A".
 | `service.py` | the run; `select()` = find + check + rank, no writes |
 | `research.py`, `prompts.py` | the two OpenAI calls (Responses API + web_search), retries |
 | `matching.py` | same product, repeat vendors, the Germany check |
+| `pages.py` | the product page check (opens the AI's proof page) |
 | `mapping.py` | vendor → column values, validation of every value |
 | `monday.py` | read request, read existing vendors, create item (with column-drop retry), set status |
 | `dry_run.py` | the real search, printed, nothing written |

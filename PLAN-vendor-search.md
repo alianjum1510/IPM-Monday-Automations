@@ -24,6 +24,11 @@
   product as "Euro pallets" (code check for case/spaces/hyphens, then one short AI question without web
   search for typos, plurals and translations). Their vendors are never returned again; vendors of a
   different product may be. The existing label is reused.
+- **After switching to gpt-4o-mini** (fewer searches, one invented vendor for "zzqlorp 8812"): the check
+  prompt now names where to find LinkedIn (site:linkedin.com/company) and employees (LinkedIn, northdata,
+  website); Company Size takes the middle of a published range ("51-200" → 126); all 16 states become
+  "Bundesweit"; and **pages.py** opens the AI's product page and rejects a vendor whose page is on another
+  site, doesn't exist, or doesn't mention the product. Suite: 850 passed.
   Sections below still describe the first design where they differ.
 
 ---

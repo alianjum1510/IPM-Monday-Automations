@@ -123,6 +123,9 @@ def test_prompts_name_the_product_the_area_and_the_known_vendors():
     assert '"name": "A"' in check
     assert 'Bundesweit' in check and 'Thüringen' in check
     assert 'Never guess' in check
+    assert 'site:linkedin.com/company' in check, 'tells the model where to find LinkedIn'
+    assert 'northdata.de' in check and '"51-200"' in check, 'where to find employees, ranges allowed'
+    assert '"product_terms"' in check and "company's own website" in check.lower()
 
 
 # ---- monday ---------------------------------------------------------------------------------

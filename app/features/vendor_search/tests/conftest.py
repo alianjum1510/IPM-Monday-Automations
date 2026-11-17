@@ -11,7 +11,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app.features.vendor_search import monday, research, settings
+from app.features.vendor_search import monday, pages, research, settings
 from app.features.vendor_search.router import FEATURE
 from main import create_app
 
@@ -58,6 +58,7 @@ def vendor(name, **overrides):
         'address_source_url': f'https://www.{slug(name)}.de/impressum',
         'sells_exact_product': True,
         'product_evidence_url': f'https://www.{slug(name)}.de/products/iphone',
+        'product_terms': ['Produkt'],
         'vat_id': 'DE123456789',
         'year_founded': 1998,
         'employees': 250,
@@ -220,6 +221,25 @@ class FakeAI:
     @property
     def checks(self):
         return [p for p in self.prompts if not p.startswith((FIND, MATCH))]
+
+
+PRODUCT_PAGE = '<html><body>' + 'Willkommen bei uns. ' * 40 + '<h1>Produkt</h1></body></html>'
+
+
+@pytest.fixture(autouse=True)
+def product_pages(monkeypatch):
+    """No test opens a real web page. Every product page exists and shows 'Produkt' unless a test says otherwise."""
+    fake = {'default': (200, PRODUCT_PAGE), 'urls': {}, 'opened': []}
+
+    def fetch(url):
+        fake['opened'].append(url)
+        answer = fake['urls'].get(url, fake['default'])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(pages, 'fetch', fetch)
+    return fake
 
 
 @pytest.fixture

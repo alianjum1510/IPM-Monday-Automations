@@ -128,10 +128,16 @@ def test_phone(value, expected):
 
 @pytest.mark.parametrize('value, expected', [
     (250, 250), ('250', 250), ('1.200', 1200), ('1,200', 1200), ('ca. 250', 250),
-    ('50-200', None), ('50 – 200', None), ('50 bis 200', None), ('unknown', None), (0, None), (True, None),
+    ('51-200', 126), ('51 – 200', 126), ('50 bis 200', 125), ('11-50', 30), ('1.001-5.000 Mitarbeiter', 3000),
+    ('200-51', None), ('unknown', None), (0, None), (True, None),
 ])
-def test_employees(value, expected):
+def test_employees_a_number_or_the_middle_of_a_range(value, expected):
     assert mapping.employees(value) == expected
+
+
+def test_a_range_is_written_as_its_middle_value_into_company_size():
+    values = mapping.column_values(vendor('A', employees='51-200'), 'iPhone')
+    assert values[settings.COMPANY_SIZE] == '126'
 
 
 def test_year_founded_must_be_a_real_year():
@@ -165,6 +171,11 @@ def test_regions_only_from_the_list():
     assert set(settings.REGIONS) >= set(mapping.REGION_ALIASES.values())
 
 
+def test_all_16_states_listed_one_by_one_become_bundesweit():
+    assert mapping.regions(list(settings.STATES)) == ['Bundesweit']
+    assert mapping.regions(list(settings.STATES[:-1])) == list(settings.STATES[:-1]), '15 states stay as they are'
+
+
 def test_certifications_trimmed_and_unique():
     assert mapping.certifications(['ISO 9001', 'iso 9001', '', 'ISO 14001']) == ['ISO 9001', 'ISO 14001']
 
@@ -177,7 +188,7 @@ def test_urls():
 
 
 def test_missing_values_are_left_out_never_placeholders():
-    sparse = vendor('A', vat_id=None, year_founded=None, employees='50-200', description='', website='N/A',
+    sparse = vendor('A', vat_id=None, year_founded=None, employees='unknown', description='', website='N/A',
                     linkedin='Not found', company_email='N/A', company_phone=None, contact_person=None,
                     contact_person_phone='unknown', vendor_type='other', delivery_regions=['Europe'],
                     certifications=[])

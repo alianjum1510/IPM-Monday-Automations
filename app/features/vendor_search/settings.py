@@ -20,9 +20,10 @@ BOARDS = {
 
 # Group "1. Vendor Search in Progress": requests are created here. Only items here are searched.
 REQUEST_GROUP_ID = 'topics'
-# Group "2. Criteria Check & ICP Scoring": the 2nd and 3rd vendors are created here. The
-# request (filled with the best vendor) is never moved by the code - the board's own
-# automation decides that.
+# Group "2. Criteria Check & ICP Scoring": the 2nd and 3rd vendors are created in group 1
+# and then moved here, so the board's "item moves to group 2" automation runs for them
+# as it does for the request. The request (filled with the best vendor) is never moved
+# by the code - the board's own automation decides that.
 DONE_GROUP_ID = 'new_group'
 
 # ---- Columns (Vendor Mining Board) ----------------------------------------------
@@ -44,6 +45,10 @@ CONTACT_PHONE = 'phone_mm96btp9'
 VENDOR_TYPE = 'color_mm95t6mt'
 DELIVERY_REGIONS = 'dropdown_mm96c0jr'
 CERTIFICATIONS = 'dropdown_mm96f573'
+# "Job Functions and Departments" (connect boards): the contact's job title is
+# linked to the matching item on that board; the Department mirror then fills itself.
+JOB_FUNCTIONS = 'board_relation_mm9685qm'
+JOB_FUNCTIONS_BOARD = 5108003087
 
 # What a vendor item is still created with when monday rejects a column without
 # naming it. Search Source must always be there: with it filled, the "item
@@ -69,8 +74,9 @@ REGIONS = (NATIONWIDE, *STATES)
 
 # ---- Limits (cost) -------------------------------------------------------------
 MAX_CANDIDATES = 10   # step 1 asks for up to this many
-VENDORS_WANTED = 3    # created per request, at most
-MAX_CHECKS = 6        # step 2 deep checks per request: 3 + up to 3 replacements
+VENDORS_WANTED = 3    # created per request: the search goes on until it has 3, within the limits below
+FIND_ROUNDS = 2       # step 1 searches per request: a 2nd only when the 1st did not give 3 verified vendors
+MAX_CHECKS = 12       # step 2 deep checks per request, over both rounds
 
 # OpenAI calls: 3 retries after the first try, waiting this long before each.
 RETRY_DELAYS_SECONDS = (2, 5, 10)

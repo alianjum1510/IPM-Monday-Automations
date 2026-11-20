@@ -19,6 +19,10 @@ LEGAL_FORMS = re.compile(
 
 # A 5-digit German postal code, not part of a longer number.
 POSTAL_CODE = re.compile(r'(?<!\d)\d{5}(?!\d)')
+# A street with its house number: "Marienplatz 1", "Werner-von-Siemens-Str. 2", "Natt 18",
+# "Hauptstraße 12a", "Am Markt 3-5". A 5-digit number is the postal code, not a house number.
+STREET_AND_NUMBER = re.compile(
+    r'[A-Za-zÄÖÜäöüß][^\d,]*?[\s.]\d{1,4}(?:\s?[a-zA-Z])?(?:\s?[-–/]\s?\d{1,4}[a-zA-Z]?)?(?!\d)')
 
 # Places an address must not name for a vendor that is based in Germany.
 FOREIGN_MARKERS = re.compile(
@@ -81,9 +85,8 @@ class Existing:
     The vendors already known for one product: from the board, then the ones this run adds.
 
     A vendor is known by its company names (legal and trading) and its website.
-    The bot names a vendor row after the product it was found for, so the row
-    name only counts as the company on rows without a Legal Company Name (rows
-    added by hand).
+    Legal Company Name is used when a row has one; otherwise the row name (the
+    bot names rows after the vendor; older rows were named after the product).
     """
 
     def __init__(self, vendors=()):
@@ -140,8 +143,9 @@ def germany_problem(vendor):
     Why a deep-checked vendor fails the Germany rule, or None when it passes.
 
     Decided here, not by the model: the model's yes is required, and so is a
-    German address with a 5-digit postal code and a city, confirmed from a source
-    URL (Impressum or register). Delivering to Germany is not enough.
+    full German address - street and house number, 5-digit postal code, city - in
+    the address itself, confirmed from a source URL (Impressum or register). "München,
+    Germany" is not an address. Delivering to Germany is not enough.
     """
     if vendor.get('based_in_germany') is not True:
         return 'not confirmed as based in Germany'
@@ -157,6 +161,10 @@ def germany_problem(vendor):
         return 'no German postal code'
     if FOREIGN_MARKERS.search(_fold(address)):
         return 'address is outside Germany'
+    if not POSTAL_CODE.search(address):
+        return 'no postal code in the address'
+    if not STREET_AND_NUMBER.search(address):
+        return 'no street and house number in the address'
     if not _is_url(vendor.get('address_source_url')):
         return 'address has no source'
     return None

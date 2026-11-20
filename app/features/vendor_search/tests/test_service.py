@@ -10,7 +10,7 @@ from .conftest import BOARD, REQUEST_ID, candidate, vendor
 def names(board):
     """
     Every vendor written - into the request (the best one) and as new items - in that order,
-    from Legal Company Name (the items themselves are named after the product).
+    from Legal Company Name.
     """
     written = [values for _item_id, values in board.fills] + [item['values'] for item in board.created]
     return [values[settings.LEGAL_NAME].removesuffix(' GmbH') for values in written]
@@ -40,7 +40,8 @@ def test_the_best_vendor_fills_the_request_so_no_empty_row_is_left(board, ai):
     assert values[settings.SEARCH_SOURCE] == {'label': 'Research Completed'}
     assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}
     request = board.items[REQUEST_ID]
-    assert request['name'] == 'iPhone', 'the request keeps its product name'
+    assert values['name'] == 'Alpha Mobile'
+    assert request['name'] == 'Alpha Mobile', 'the request is renamed from the product to the vendor'
     assert request['legal_name'] == 'Alpha Mobile GmbH'
     assert [item['values'][settings.LEGAL_NAME] for item in board.created] == ['Beta Phones GmbH']
 
@@ -182,14 +183,16 @@ def test_an_empty_product_name_is_manual_research(board, ai):
 
 # ---- the vendor items ----------------------------------------------------------------
 
-def test_a_vendor_item_is_named_after_the_product_and_created_in_group_2_with_every_column(board, ai):
+def test_a_vendor_item_is_named_after_the_vendor_and_created_in_group_2_with_every_column(board, ai):
     ai.candidates = [candidate('Best One'), candidate('Alpha Mobile')]
     service.run(BOARD, REQUEST_ID)
     [item] = board.created
     values = item['values']
 
-    assert item['name'] == 'iPhone', 'named after the request, matching "Request (name of item)"'
-    assert item['group'] == 'new_group'
+    assert item['name'] == 'Alpha Mobile', 'named after the vendor, not the product'
+    assert item['group'] == 'topics', 'created in group 1 ...'
+    assert board.moves == [(item['id'], 'new_group')], '... then moved to group 2, like the request'
+    assert board.items[item['id']]['group'] == 'new_group'
     assert values[settings.SEARCH_SOURCE] == {'label': 'Research Completed'}
     assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}
     assert values[settings.COUNTRY] == {'countryCode': 'DE', 'countryName': 'Germany'}
@@ -249,7 +252,7 @@ def test_a_candidate_plainly_outside_germany_is_not_even_checked(board, ai):
 def test_the_search_area_is_in_both_prompts(board, ai):
     ai.candidates = [candidate('A')]
     service.run(BOARD, REQUEST_ID)
-    find, check = ai.prompts
+    find, check = ai.finds[0], ai.checks[0]
     assert 'companies based in Germany' in find and 'even if it delivers to Germany' in find
     assert 'Confirm the company is based in Germany' in check
 
@@ -342,15 +345,17 @@ def test_the_same_company_twice_in_one_answer_is_created_once(board, ai):
 
 # ---- limits and failures --------------------------------------------------------------------
 
-def test_at_most_six_deep_checks_per_request(board, ai):
-    ai.candidates = [candidate(f'Vendor {n}') for n in range(10)]
-    for n in range(10):
-        ai.vendors[f'Vendor {n}'] = vendor(f'Vendor {n}', based_in_germany=False)
+def test_at_most_twelve_deep_checks_over_two_search_rounds(board, ai):
+    ai.find_rounds = [[candidate(f'Vendor {n}') for n in range(10)],
+                      [candidate(f'Other {n}') for n in range(10)]]
+    for name in [f'Vendor {n}' for n in range(10)] + [f'Other {n}' for n in range(10)]:
+        ai.vendors[name] = vendor(name, based_in_germany=False)
 
     summary = service.run(BOARD, REQUEST_ID)
 
-    assert len(ai.checks) == settings.MAX_CHECKS == 6
-    assert summary['checked'] == 6
+    assert len(ai.finds) == settings.FIND_ROUNDS == 2
+    assert len(ai.checks) == settings.MAX_CHECKS == 12
+    assert summary['checked'] == 12
     assert board.created == []
     assert board.request_statuses == ['AI Bot', 'Manual research']
 
@@ -512,3 +517,106 @@ def test_with_no_products_on_the_board_no_same_product_question_is_asked(board, 
     ai.candidates = [candidate('A')]
     service.run(BOARD, REQUEST_ID)
     assert ai.matches == []
+
+
+def test_nothing_found_keeps_the_product_name_on_the_request(board, ai):
+    ai.candidates = []
+    service.run(BOARD, REQUEST_ID)
+    assert board.items[REQUEST_ID]['name'] == 'iPhone'
+    assert board.fills == [] and board.created == []
+    assert board.request_statuses == ['AI Bot', 'Manual research']
+
+
+# ---- contact job title -> Job Functions ------------------------------------------------
+
+def test_a_title_written_as_on_the_job_functions_board_is_linked_without_an_ai_question(board, ai):
+    ai.candidates = [candidate('Alpha Mobile')]
+    service.run(BOARD, REQUEST_ID)
+    [(_item, values)] = board.fills
+    assert values[settings.CONTACT_PERSON] == 'Anna Schmidt'
+    assert values[settings.JOB_FUNCTIONS] == {'item_ids': [502]}
+    assert ai.job_questions == []
+
+
+def test_a_title_in_another_language_is_matched_by_one_ai_question(board, ai):
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+    ai.vendors['Alpha Mobile'] = vendor('Alpha Mobile', contact_person='Heiner van Elten, Managing Director',
+                                        contact_person_role=None)
+    ai.vendors['Beta Phones'] = vendor('Beta Phones', contact_person_role='CEO')
+    ai.job_matches = {'Managing Director': 'Geschäftsführer', 'CEO': 'Geschäftsführer'}
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert len(ai.job_questions) == 1, 'one question for all the titles'
+    assert '"Managing Director"' in ai.job_questions[0] and '"Geschäftsführer"' in ai.job_questions[0]
+    assert ai.web_search[ai.prompts.index(ai.job_questions[0])] is False
+    written = [values for _item, values in board.fills] + [item['values'] for item in board.created]
+    assert [v[settings.JOB_FUNCTIONS] for v in written] == [{'item_ids': [501]}] * 2, 'the first Geschäftsführer'
+    assert written[0][settings.CONTACT_PERSON] == 'Heiner van Elten'
+    assert summary['job_functions'] == {'Managing Director': 'Geschäftsführer', 'CEO': 'Geschäftsführer'}
+
+
+def test_a_title_the_ai_cannot_match_or_invents_is_left_empty(board, ai):
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+    ai.vendors['Alpha Mobile'] = vendor('Alpha Mobile', contact_person_role='Lagerist')
+    ai.vendors['Beta Phones'] = vendor('Beta Phones', contact_person_role='Chief Happiness Officer')
+    ai.job_matches = {'Lagerist': None, 'Chief Happiness Officer': 'Glücksbeauftragter'}
+    service.run(BOARD, REQUEST_ID)
+    written = [values for _item, values in board.fills] + [item['values'] for item in board.created]
+    assert all(settings.JOB_FUNCTIONS not in v for v in written)
+    assert board.request_statuses[-1] == 'Research Completed'
+
+
+def test_job_functions_failing_never_stops_the_vendors(board, ai):
+    board.job_titles_error = service.monday.MondayError([{'message': 'no access'}])
+    ai.candidates = [candidate('Alpha Mobile')]
+    service.run(BOARD, REQUEST_ID)
+    [(_item, values)] = board.fills
+    assert settings.JOB_FUNCTIONS not in values and values[settings.CONTACT_PERSON] == 'Anna Schmidt'
+    assert board.request_statuses[-1] == 'Research Completed'
+
+
+def test_no_contact_title_asks_nothing(board, ai):
+    ai.candidates = [candidate('Alpha Mobile')]
+    ai.vendors['Alpha Mobile'] = vendor('Alpha Mobile', contact_person='Anna Schmidt', contact_person_role=None)
+    service.run(BOARD, REQUEST_ID)
+    assert ai.job_questions == []
+
+
+# ---- always 3: a second search round --------------------------------------------------------
+
+def test_when_the_first_round_gives_fewer_than_3_a_second_round_finds_the_rest(board, ai):
+    ai.find_rounds = [[candidate('Good One'), candidate('Bad One'), candidate('Bad Two')],
+                      [candidate('Bad One'), candidate('Good Two'), candidate('Good Three')]]
+    ai.vendors['Bad One'] = vendor('Bad One', sells_exact_product=False)
+    ai.vendors['Bad Two'] = vendor('Bad Two', based_in_germany=False)
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert sorted(names(board)) == ['Good One', 'Good Three', 'Good Two']
+    assert summary['rounds'] == 2 and summary['verified'] == 3
+    assert '- Bad One' in ai.finds[1] and '- Good One' in ai.finds[1], 'the 2nd round is told who was tried'
+    assert len(ai.checks) == 5, 'Bad One, named again, is not checked twice'
+    assert board.request_statuses[-1] == 'Research Completed'
+
+
+def test_no_second_round_when_the_first_gives_3(board, ai):
+    ai.find_rounds = [[candidate('A'), candidate('B'), candidate('C')], [candidate('D')]]
+    summary = service.run(BOARD, REQUEST_ID)
+    assert len(ai.finds) == 1 and summary['rounds'] == 1
+    assert sorted(names(board)) == ['A', 'B', 'C']
+
+
+def test_a_failed_second_round_keeps_the_vendors_already_found(board, ai):
+    ai.find_rounds = [[candidate('A')], requests.ConnectionError('down')]
+    service.run(BOARD, REQUEST_ID)
+    assert names(board) == ['A']
+    assert board.request_statuses[-1] == 'Research Completed'
+
+
+def test_a_second_round_with_nothing_new_stops(board, ai):
+    ai.find_rounds = [[candidate('A')], [candidate('A GmbH')]]
+    summary = service.run(BOARD, REQUEST_ID)
+    assert summary['rounds'] == 2 and len(ai.checks) == 1
+    assert names(board) == ['A']
+

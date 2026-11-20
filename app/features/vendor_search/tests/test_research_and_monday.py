@@ -128,6 +128,7 @@ def test_prompts_name_the_product_the_area_and_the_known_vendors():
     for example in ('51-200', 'DE123456789', '"employees": 250', '1990'):
         assert example not in check, f'no example value the model could copy: {example}'
     assert '"product_terms"' in check and "company's own website" in check.lower()
+    assert '"contact_person_role"' in check and 'without the job title' in check
 
 
 # ---- monday ---------------------------------------------------------------------------------
@@ -138,6 +139,8 @@ def created(monkeypatch):
     calls = SimpleNamespace(attempts=[], rejections=[])
 
     def graphql(query, variables):
+        if 'move_item_to_group' in query:
+            return {'move_item_to_group': {'id': variables['itemId']}}
         calls.attempts.append(json.loads(variables['values']))
         errors = calls.rejections.pop(0) if calls.rejections else None
         if errors:
@@ -186,17 +189,31 @@ def test_search_source_is_never_dropped(created):
     assert len(created.attempts) == 1
 
 
-def test_items_are_created_in_group_2_with_new_labels_allowed(monkeypatch):
-    seen = {}
+def test_items_are_created_in_group_1_then_moved_to_group_2_with_new_labels_allowed(monkeypatch):
+    sent = []
 
     def graphql(query, variables):
-        seen.update(query=query, variables=variables)
+        sent.append((query, variables))
+        if 'move_item_to_group' in query:
+            return {'move_item_to_group': {'id': variables['itemId']}}
         return {'create_item': {'id': '9'}}
 
     monkeypatch.setattr(monday, 'graphql', graphql)
     monday.create_vendor(BOARD, 'A', {settings.SEARCH_SOURCE: {'label': 'AI Bot'}})
-    assert seen['variables']['groupId'] == 'new_group'
-    assert 'create_labels_if_missing: true' in seen['query']
+    (create, created_with), (move, moved_with) = sent
+    assert 'create_item' in create and 'create_labels_if_missing: true' in create
+    assert created_with['groupId'] == 'topics'
+    assert 'move_item_to_group' in move and moved_with == {'itemId': '9', 'groupId': 'new_group'}
+
+
+def test_a_failed_move_keeps_the_created_item(monkeypatch):
+    def graphql(query, variables):
+        if 'move_item_to_group' in query:
+            raise monday.MondayError([{'message': 'boom'}])
+        return {'create_item': {'id': '9'}}
+
+    monkeypatch.setattr(monday, 'graphql', graphql)
+    assert monday.create_vendor(BOARD, 'A', {settings.SEARCH_SOURCE: {'label': 'AI Bot'}}) == ('9', [])
 
 
 def test_the_request_is_filled_in_place_with_the_same_column_retry(monkeypatch):
@@ -237,3 +254,21 @@ def test_monday_errors_raise_with_the_errors_kept(monkeypatch):
     with pytest.raises(monday.MondayError) as raised:
         monday.graphql('query { me { id } }', {})
     assert monday._rejected_column(raised.value) == 'x'
+
+
+def test_filling_the_request_renames_it_and_the_name_survives_the_core_column_retry(monkeypatch):
+    sent = []
+
+    def graphql(query, variables):
+        sent.append(json.loads(variables['values']))
+        if len(sent) == 1:
+            raise monday.MondayError([{'message': 'email is not valid', 'extensions': {'error_data': {}}}])
+        return {'change_multiple_column_values': {'id': variables['itemId']}}
+
+    monkeypatch.setattr(monday, 'graphql', graphql)
+    from app.features.vendor_search import mapping
+    monday.fill_request(BOARD, 100, mapping.column_values(vendor('A'), 'iPhone'), 'A')
+
+    assert sent[0]['name'] == 'A'
+    assert sent[1]['name'] == 'A'
+    assert set(sent[1]) == set(settings.CORE_COLUMNS) | {'name'}

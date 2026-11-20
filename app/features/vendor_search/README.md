@@ -31,18 +31,21 @@ Full design and decisions: [PLAN-vendor-search.md](../../../PLAN-vendor-search.m
 4. **Step 1, find** (1 AI call, web search): up to 10 German candidates.
 5. **Step 2, check** (1 AI call each, 3 at a time): Impressum, register, VAT, address, contacts. A vendor
    is kept only if it is confirmed to sell the exact product **and** passes the Germany check in code
-   (German 5-digit postal code, city, address source URL, nothing foreign in the address). A failure is
-   replaced by the next candidate; at most 6 checks per request.
+   (street and house number plus German 5-digit postal code in the address, city, address source URL,
+   nothing foreign in the address). A failure is
+   replaced by the next candidate. Fewer than 3 after the first search: a second search for new companies
+   (told who was already tried); at most 12 checks per request.
 6. Ranks the checked vendors (verified data → manufacturer/distributor → established → reachable) and
    writes the best 3:
    - the **best one into the request item itself** (so no empty request row is left);
-   - the **other two as new items** in group **2. Criteria Check & ICP Scoring**.
+   - the **other two as new items**: created in group 1, then **moved** to **2. Criteria Check & ICP Scoring**
+     (the move runs the board's "item moves to group 2" automation, as for the request row).
 
-   Every vendor row is **named after the product** (matching the "Request (name of item)" column), with
-   the company in **Legal Company Name**, the product in Product Categories, and Search Source
+   Every vendor row is **named after the vendor** (the request row is renamed from the product to the
+   best vendor), with the company in **Legal Company Name**, the product in Product Categories, and Search Source
    **"Research Completed"**. Repeats are recognised by Legal Company Name and website.
 7. Nothing found (or the AI failed after 3 retries, or any error): the request gets **"Manual research"**
-   and **stays in group 1**, empty, for manual research.
+   and **stays in group 1** with its product name, empty, for manual research.
 
 The code never moves the request. The board automation "Search Source changes to Research Completed →
 move to group 2" does: with it on, a completed request goes to group 2; without it, it stays in group 1.
@@ -89,3 +92,12 @@ MONDAY_API_TOKEN=... OPENAI_API_KEY=... python -m app.features.vendor_search.dry
 ```
 
 The dry run calls OpenAI for real (about the cost of a real run) but writes nothing to monday.
+
+## Contact person and Job Functions
+
+- **Name of Contact Person** gets the contact's name only.
+- The contact's job title is linked in **Job Functions and Departments** (a connect-boards column to the
+  board of the same name). A title written the same as on that board ("Geschäftsführer") is matched in
+  code; another language or wording ("Managing Director", "CEO") by one short AI question without web
+  search. No matching title: the column stays empty. **Department** (a mirror) then fills itself.
+

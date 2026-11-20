@@ -68,7 +68,8 @@ def vendor(name, **overrides):
         'linkedin': f'https://www.linkedin.com/company/{slug(name)}',
         'company_email': f'info@{slug(name)}.de',
         'company_phone': '+49 89 1234567',
-        'contact_person': 'Anna Schmidt, Head of Sales',
+        'contact_person': 'Anna Schmidt',
+        'contact_person_role': 'Vertriebsleiter',
         'contact_person_phone': '089 7654321',
         'vendor_type': 'Distributor',
         'delivery_regions': ['Bundesweit'],
@@ -90,6 +91,9 @@ class FakeBoard:
         self.reject = None          # values -> list of monday errors, or None
         self.fail_status = False
         self.next_id = 1000
+        # The Job Functions board: (title, item id). Listed twice like the real board.
+        self.job_titles = [('Geschäftsführer', 501), ('Vertriebsleiter', 502), ('Geschäftsführer', 503)]
+        self.job_titles_error = None
         self.add(REQUEST_ID, 'iPhone')
 
     def add(self, item_id, name, group=settings.REQUEST_GROUP_ID, search_source='', products=(), website='',
@@ -98,6 +102,12 @@ class FakeBoard:
                                'products': list(products), 'website': website, 'legal_name': legal_name}
 
     def graphql(self, query, variables):
+        if 'JobTitles' in query:
+            assert variables['boardId'] == str(settings.JOB_FUNCTIONS_BOARD)
+            if self.job_titles_error:
+                raise self.job_titles_error
+            return {'boards': [{'items_page': {'cursor': None, 'items': [
+                {'id': str(item_id), 'name': title} for title, item_id in self.job_titles]}}]}
         if 'create_item' in query:
             return self._create(variables)
         if 'change_multiple_column_values' in query:
@@ -140,7 +150,8 @@ class FakeBoard:
         self._maybe_reject(values)
         item = self.items[int(variables['itemId'])]
         self.fills.append((item['id'], values))
-        item.update(search_source=values.get(settings.SEARCH_SOURCE, {}).get('label', item['search_source']),
+        item.update(name=values.get('name', item['name']),
+                    search_source=values.get(settings.SEARCH_SOURCE, {}).get('label', item['search_source']),
                     products=values.get(settings.PRODUCT_CATEGORIES, {}).get('labels', item['products']),
                     website=(values.get(settings.WEBSITE) or {}).get('url', item['website']),
                     legal_name=values.get(settings.LEGAL_NAME, item['legal_name']))
@@ -172,6 +183,7 @@ class FakeBoard:
 
 FIND = 'You are a procurement researcher'
 MATCH = 'A buyer asked for this product'
+JOB = 'Match each job title'
 
 
 class FakeAI:
@@ -182,9 +194,11 @@ class FakeAI:
 
     def __init__(self):
         self.candidates = []
+        self.find_rounds = None     # a list of candidate lists: one per step 1 search, in turn
         self.vendors = {}
         self.same_products = []     # the labels the AI calls the same product
         self.match_error = None
+        self.job_matches = {}       # role -> title the AI answers
         self.find_error = None
         self.prompts = []
         self.web_search = []        # whether each call asked for web search
@@ -196,9 +210,16 @@ class FakeAI:
             if self.match_error:
                 raise self.match_error
             return self._answer({'matches': self.same_products})
+        if prompt.startswith(JOB):
+            return self._answer({'matches': self.job_matches})
         if prompt.startswith(FIND):
             if self.find_error:
                 raise self.find_error
+            if self.find_rounds is not None:
+                answer = self.find_rounds.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return self._answer({'candidates': answer})
             return self._answer({'candidates': self.candidates})
         name = json.loads(re.search(r'COMPANY \(from an earlier search, may contain errors\): (\{.*\})', prompt)
                           .group(1))['name']
@@ -221,7 +242,11 @@ class FakeAI:
 
     @property
     def checks(self):
-        return [p for p in self.prompts if not p.startswith((FIND, MATCH))]
+        return [p for p in self.prompts if not p.startswith((FIND, MATCH, JOB))]
+
+    @property
+    def job_questions(self):
+        return [p for p in self.prompts if p.startswith(JOB)]
 
 
 PRODUCT_PAGE = '<html><body>' + 'Willkommen bei uns. ' * 40 + '<h1>Produkt</h1></body></html>'

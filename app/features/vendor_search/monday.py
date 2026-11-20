@@ -6,8 +6,9 @@ runs on a background thread, like Company Enrichment.
   set_search_source(board_id, item_id, label)    the request's progress
   board_vendors(board_id)                        every row: name, product labels, website, legal name
   product_labels(board_id, board_items)          every Product Categories label on the board
-  fill_request(board_id, item_id, values)        the best vendor, into the request item
-  create_vendor(board_id, name, values)          one new vendor item (the 2nd and 3rd)
+  fill_request(board_id, item_id, values, name)  the best vendor, into the request item (renamed to the vendor)
+  create_vendor(board_id, name, values)          one new vendor item (the 2nd and 3rd): group 1, then moved to 2
+  job_function_titles()                          the Job Functions board's titles: {title: item id}
 """
 import json
 import logging
@@ -20,6 +21,9 @@ from . import settings
 log = logging.getLogger('vendor_search')
 
 API_URL = 'https://api.monday.com/v2'
+
+# change_multiple_column_values renames the item with this key.
+ITEM_NAME = 'name'
 
 
 class MondayError(Exception):
@@ -147,6 +151,32 @@ def board_vendors(board_id):
     return items
 
 
+JOB_TITLES_QUERY = """
+query JobTitles($boardId: ID!, $cursor: String) {
+  boards(ids: [$boardId]) {
+    items_page(limit: 500, cursor: $cursor) { cursor items { id name } }
+  }
+}
+"""
+
+
+def job_function_titles():
+    """Every title on the Job Functions board as {title: item id}; a title listed twice keeps its first item."""
+    titles, cursor = {}, None
+    for _page in range(10):
+        data = graphql(JOB_TITLES_QUERY, {'boardId': str(settings.JOB_FUNCTIONS_BOARD), 'cursor': cursor})
+        boards = data.get('boards') or []
+        page = (boards[0] if boards else {}).get('items_page') or {}
+        for item in page.get('items') or []:
+            name = str(item.get('name') or '').strip()
+            if name and name not in titles:
+                titles[name] = int(item['id'])
+        cursor = page.get('cursor')
+        if not cursor:
+            break
+    return titles
+
+
 COLUMN_QUERY = """
 query ($boardId: [ID!], $columns: [String!]) {
   boards(ids: $boardId) { columns(ids: $columns) { id settings_str } }
@@ -227,7 +257,8 @@ def _write(label, values, send):
                 del payload[column]
                 continue
             if not column and not core_only:
-                core = {key: value for key, value in payload.items() if key in settings.CORE_COLUMNS}
+                core = {key: value for key, value in payload.items()
+                        if key in settings.CORE_COLUMNS or key == ITEM_NAME}
                 dropped.extend(key for key in payload if key not in core)
                 log.warning(f'monday rejected {label} without naming a column - retrying with core columns only',
                             extra={'payload': {'errors': error.errors}})
@@ -237,8 +268,14 @@ def _write(label, values, send):
     raise MondayError([{'message': f'{label}: too many rejected columns'}])
 
 
-def fill_request(board_id, item_id, values):
-    """Writes the best vendor into the request item itself; returns (item_id, dropped column ids)."""
+def fill_request(board_id, item_id, values, name=None):
+    """
+    Writes the best vendor into the request item itself and renames the item to
+    the vendor (`name`); returns (item_id, dropped column ids).
+    """
+    if name:
+        values = {ITEM_NAME: name, **values}
+
     def send(payload):
         graphql(FILL_ITEM, {'boardId': str(board_id), 'itemId': str(item_id),
                             'values': json.dumps(payload, ensure_ascii=False)})
@@ -247,17 +284,36 @@ def fill_request(board_id, item_id, values):
     return _write(f'request item {item_id}', values, send)
 
 
+MOVE_ITEM = """
+mutation ($itemId: ID!, $groupId: String!) {
+  move_item_to_group(item_id: $itemId, group_id: $groupId) { id }
+}
+"""
+
+
 def create_vendor(board_id, name, values):
     """
-    Creates a vendor item in group 2; returns (item_id, dropped column ids).
+    Creates a vendor item in group 1 and moves it to group 2; returns (item_id, dropped column ids).
 
-    `name` is the item name - the request's product. The company is in Legal Company Name.
+    The move - not a create straight into group 2 - is what runs the board's
+    "When item moves to group 2" automation (Lifecycle Stage -> ICP Scoring), the
+    same as for the request row. Search Source is set at creation, so the item's
+    own "item created" trigger does not start a search. If the move fails the item
+    stays in group 1 (logged).
+
+    `name` is the item name - the vendor's company name.
     """
     def send(payload):
         data = graphql(CREATE_ITEM, {
-            'boardId': str(board_id), 'groupId': settings.DONE_GROUP_ID,
+            'boardId': str(board_id), 'groupId': settings.REQUEST_GROUP_ID,
             'name': name, 'values': json.dumps(payload, ensure_ascii=False),
         })
         return str((data.get('create_item') or {}).get('id') or '')
 
-    return _write(f'new vendor item "{name}"', values, send)
+    item_id, dropped = _write(f'new vendor item "{name}"', values, send)
+    try:
+        graphql(MOVE_ITEM, {'itemId': item_id, 'groupId': settings.DONE_GROUP_ID})
+    except (MondayError, requests.RequestException) as error:
+        log.error(f'Vendor item {item_id} "{name}" was created but not moved to group 2: {error}',
+                  extra={'payload': {'item_id': item_id, 'error': str(error)}})
+    return item_id, dropped

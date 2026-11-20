@@ -33,6 +33,26 @@ Answer with JSON only, copying the names exactly as listed, or an empty list if 
 {{"matches": ["..."]}}"""
 
 
+def job_title_prompt(roles, titles):
+    asked = '\n'.join(f'- {json.dumps(role, ensure_ascii=False)}' for role in roles)
+    listed = '\n'.join(f'- {json.dumps(title, ensure_ascii=False)}' for title in titles)
+    return f"""Match each job title of a company contact to the one title from our list that means the same job.
+
+JOB TITLES (as published by the company, any language):
+{asked}
+
+OUR LIST:
+{listed}
+
+Rules:
+- Pick only a title from our list, copied exactly as listed.
+- The same job in another language counts: "Managing Director", "CEO" and "Inhaber" are "Geschäftsführer"; "Head of Sales" is "Vertriebsleiter".
+- If no title on our list means the same job, use null. Do not guess.
+
+Answer with JSON only, one entry per job title:
+{{"matches": {{"<job title>": "<title from our list, or null>"}}}}"""
+
+
 def find_prompt(product, existing, limit=settings.MAX_CANDIDATES):
     area = settings.SEARCH_AREA
     return f"""You are a procurement researcher. Find companies based in {area} that sell this exact product:
@@ -44,7 +64,7 @@ RULES
 2. Exact product: they must clearly sell "{product}" itself - not only the general category. Find a page on their website (product page, catalogue, shop) that shows it.
 3. Prefer manufacturers and official / authorised distributors over small resellers.
 4. Prefer established companies with an active website.
-5. Do NOT include these companies - they are already on our list for this product:
+5. Do NOT include these companies - they are already on our list for this product, or were already checked:
 {_known_vendors(existing)}
 6. Do not invent companies, websites or addresses. Only list companies you found in your web search. If you find fewer than {limit}, list only those.
 
@@ -113,7 +133,8 @@ Answer with JSON only, no other text:
   "linkedin": "https://www.linkedin.com/company/... or null",
   "company_email": "general email or null",
   "company_phone": "phone or null",
-  "contact_person": "name and role, or null",
+  "contact_person": "the contact's full name only, without the job title, or null",
+  "contact_person_role": "the contact's job title as published (e.g. Geschäftsführer, Head of Sales), or null",
   "contact_person_phone": "phone or null",
   "vendor_type": "Manufacturer | Distributor | Reseller | null",
   "delivery_regions": ["..."],

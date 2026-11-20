@@ -314,3 +314,40 @@ promote the previous app version. No other feature depends on this one.
 | AI quality varies by product (very generic or very niche names) | Germany gate + verification in code; local dry run on real products before deploy (step 6). |
 | Time per request | A few minutes expected (3 checks in parallel); measured in the dry run. |
 | Labels on the request side: the board shows "Request (name of item)", the API title is "Vendor" | Column ids are used, not titles, so it does not matter to the bot. |
+
+### Change (2026-11-19): vendor rows named after the vendor
+- The request row is renamed from the product to the best vendor's company name when it is filled
+  (`name` key in `change_multiple_column_values`; kept on the core-columns retry).
+- The 2nd and 3rd vendors are created with the vendor's company name (was: the product name).
+- Nothing found: the request keeps its product name ("Manual research").
+- The product stays in Product Categories, so the no-repeat-vendor check is unchanged.
+
+### Change (2026-11-20): 2nd and 3rd vendors created in group 1, then moved to group 2
+- Reason: the board automation "When item moves to group 2 -> Lifecycle Stage = ICP Scoring"
+  (added 2026-11-19) ran only for the request row, which is moved; rows created straight in
+  group 2 kept "Vendor Search Initiated".
+- Now `create_vendor` creates in `topics` with Search Source "Research Completed" already set (so the
+  item's own "item created" trigger does not start a search), then `move_item_to_group` -> `new_group`.
+- A failed move is logged; the item stays in group 1. The request row is still never moved by the code.
+
+### Change (2026-11-20): contact name and job title separated; job title linked to Job Functions
+- The check prompt asks for `contact_person` (name only) and `contact_person_role` separately; a role still
+  written into the name ("Name, Role" / "Name - Role" / "Name (Role)") is split off in code (`mapping.contact`).
+- Name of Contact Person gets the name only.
+- The role is linked in "Job Functions and Departments" (`board_relation_mm9685qm`, board 5108003087):
+  written the same as a title on that board -> matched in code; otherwise one AI question without web search
+  for all the run's titles (only titles from the board are accepted). No match -> the column stays empty.
+- The Department mirror fills itself from the linked title. A failure here never stops the vendors.
+
+### Change (2026-11-20): a second search round, so a request gets 3 vendors
+- When the first step 1 search leaves fewer than 3 verified vendors, a second step 1 search runs, told
+  every company already tried (and the board's vendors for the product) so it names new ones.
+- Deep checks per request: 12 over both rounds (was 6). `FIND_ROUNDS = 2`, `MAX_CHECKS = 12`.
+- All checks stay as strict as before; fewer than 3 only when two searches found no more that pass.
+- A failed second round keeps the vendors already found. Industry / Main Industry / Sub Industry: not touched.
+
+### Change (2026-11-20): full street address required
+- Papernet passed with complete_address "München, Germany" because the postal code came in its own field.
+- `matching.germany_problem` now also requires, in the address itself, a 5-digit postal code and a street
+  with a house number (`STREET_AND_NUMBER`). Otherwise the company is rejected and the next candidate (or
+  the second search round) replaces it.

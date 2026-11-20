@@ -208,3 +208,53 @@ def test_missing_values_are_left_out_never_placeholders():
 
 def test_item_name_falls_back_to_the_legal_name():
     assert mapping.item_name(vendor('A', company_name=None)) == 'A GmbH'
+
+
+@pytest.mark.parametrize('person, role, expected', [
+    ('Heiner van Elten', 'Managing Director', ('Heiner van Elten', 'Managing Director')),
+    ('Heiner van Elten, Managing Director', None, ('Heiner van Elten', 'Managing Director')),
+    ('Sven Ebert, Verkauf & Kundenbetreuung', None, ('Sven Ebert', 'Verkauf & Kundenbetreuung')),
+    ('Anna Schmidt - Vertrieb', None, ('Anna Schmidt', 'Vertrieb')),
+    ('Anna Schmidt (Geschäftsführerin)', None, ('Anna Schmidt', 'Geschäftsführerin')),
+    ('Hans-Peter Müller, CEO', None, ('Hans-Peter Müller', 'CEO')),
+    ('Hans-Peter Müller', None, ('Hans-Peter Müller', '')),
+    (None, 'Geschäftsführer', ('', 'Geschäftsführer')),
+])
+def test_the_contact_name_and_job_title_are_separated(person, role, expected):
+    assert mapping.contact(vendor('A', contact_person=person, contact_person_role=role)) == expected
+
+
+def test_the_contact_column_gets_the_name_and_job_functions_the_linked_title():
+    values = mapping.column_values(vendor('A', contact_person='Heiner van Elten, Managing Director',
+                                          contact_person_role=None), 'iPhone', 502)
+    assert values[settings.CONTACT_PERSON] == 'Heiner van Elten'
+    assert values[settings.JOB_FUNCTIONS] == {'item_ids': [502]}
+
+
+def test_no_matching_title_leaves_job_functions_out():
+    assert settings.JOB_FUNCTIONS not in mapping.column_values(vendor('A'), 'iPhone')
+
+
+@pytest.mark.parametrize('address', [
+    'Marienplatz 1, 80331 München, Germany',
+    'Werner-von-Siemens-Str. 2, 86807 Buchloe, Deutschland',
+    'Großheubacher Straße 4, 63897 Miltenberg',
+    'Natt 18, 41334 Nettetal',
+    'Hauptstraße 12a, 10115 Berlin',
+    'Am Markt 3-5, 20095 Hamburg',
+    'Siemensstr.7, 70469 Stuttgart',
+])
+def test_a_full_street_address_passes(address):
+    assert matching.germany_problem(vendor('A', complete_address=address)) is None
+
+
+@pytest.mark.parametrize('address, problem', [
+    ('München, Germany', 'no postal code in the address'),
+    ('80331 München', 'no street and house number in the address'),
+    ('Hamburg, Deutschland', 'no postal code in the address'),
+    ('Gewerbegebiet Nord, 12345 Musterstadt', 'no street and house number in the address'),
+])
+def test_an_address_without_street_number_or_postal_code_is_rejected(address, problem):
+    """Papernet came through with "München, Germany" and a postal code given on its own."""
+    assert matching.germany_problem(vendor('A', complete_address=address, postal_code='80331')) == problem
+

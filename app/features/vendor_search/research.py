@@ -129,6 +129,19 @@ def match_product(product, labels):
     return [label for label in labels if label in found]
 
 
+def match_job_titles(roles, titles):
+    """
+    {role: title} for the contacts' job titles, each matched to a title in `titles`
+    (the Job Functions board) - or left out when none fits. No web search: one
+    short answer. Only titles from the list are returned.
+    """
+    text, _ = ask(prompts.job_title_prompt(roles, titles), 'job titles', web_search=False)
+    found = parse_json(text).get('matches')
+    if not isinstance(found, dict):
+        raise ResearchError('the answer has no "matches" object')
+    return {role: found[role] for role in roles if found.get(role) in titles}
+
+
 def find(product, existing):
     """Step 1: up to settings.MAX_CANDIDATES candidates, best first. Returns (candidates, searches)."""
     text, searches = ask(prompts.find_prompt(product, existing), 'find')

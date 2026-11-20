@@ -194,12 +194,31 @@ def certifications(value):
     return found[:MAX_CERTIFICATIONS]
 
 
+# "Anna Schmidt, Head of Sales" / "Anna Schmidt - Vertrieb" / "Anna Schmidt (Geschäftsführerin)"
+NAME_AND_ROLE = re.compile(r'^\s*([^,(]+?)\s*(?:,|\s[-–]\s|\()\s*(.+?)\)?\s*$')
+
+
+def contact(vendor):
+    """(the contact's name, their job title). A role still written into the name is split off."""
+    name = text(vendor.get('contact_person'), 120)
+    role = text(vendor.get('contact_person_role'), 120)
+    found = NAME_AND_ROLE.match(name) if name else None
+    if found:
+        name = found.group(1).strip()
+        role = role or found.group(2).strip()
+    return name, role
+
+
 def item_name(vendor):
     return text(vendor.get('company_name'), 255) or text(vendor.get('legal_name'), 255)
 
 
-def column_values(vendor, product_label):
-    """The new vendor item's column_values. Search Source, product and country are always there."""
+def column_values(vendor, product_label, job_function_id=None):
+    """
+    The new vendor item's column_values. Search Source, product and country are
+    always there. job_function_id: the Job Functions board item matching the
+    contact's job title, if one was found.
+    """
     values = {
         settings.SEARCH_SOURCE: {'label': settings.RESEARCH_COMPLETED},
         settings.PRODUCT_CATEGORIES: {'labels': [product_label]},
@@ -234,7 +253,9 @@ def column_values(vendor, product_label):
         number = phone(vendor.get(key))
         put(column, {'phone': number, 'countryShortName': settings.SEARCH_AREA_CODE} if number else '')
 
-    put(settings.CONTACT_PERSON, text(vendor.get('contact_person'), 120))
+    name, _role = contact(vendor)
+    put(settings.CONTACT_PERSON, name)
+    put(settings.JOB_FUNCTIONS, {'item_ids': [int(job_function_id)]} if job_function_id else '')
 
     kind = vendor_type(vendor.get('vendor_type'))
     put(settings.VENDOR_TYPE, {'label': kind} if kind else '')

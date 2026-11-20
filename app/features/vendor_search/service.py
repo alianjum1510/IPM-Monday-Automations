@@ -9,10 +9,11 @@ then "Research Completed" or "Manual research" (none found, or the search
 failed). The code never moves the request: where it goes is up to the board's
 own automations.
 
-When vendors are found, the best one is written into the request item itself;
-the others are created as new items in group 2. Every vendor row is named after the product, with Search Source
-"Research Completed" and the company in Legal Company Name - so no empty
-request row is left on the board.
+When vendors are found, the best one is written into the request item itself
+(which is renamed from the product to the vendor); the others are created as new
+items in group 1 and moved to group 2. Every vendor row is named after the vendor, with the product
+in Product Categories and Search Source "Research Completed" - so no empty
+request row is left on the board. Nothing found: the request keeps the product name.
 """
 import concurrent.futures
 import contextvars
@@ -95,8 +96,8 @@ def run(board_id, item_id):
 
 
 def _describe(summary):
-    keys = ('product', 'same_product_labels', 'candidates', 'repeats_skipped', 'rejected', 'checked', 'verified',
-            'created', 'ai_calls', 'searches', 'seconds', 'filled_request', 'result', 'error')
+    keys = ('product', 'same_product_labels', 'rounds', 'candidates', 'repeats_skipped', 'rejected', 'checked', 'verified',
+            'created', 'job_functions', 'ai_calls', 'searches', 'seconds', 'filled_request', 'result', 'error')
     return ', '.join(f'{key}={summary[key]!r}' for key in keys if key in summary)
 
 
@@ -107,16 +108,17 @@ def _search(board_id, item_id, product):
     best, stats, label = select(board_id, product)
 
     created, filled = [], False
+    job_ids = _job_functions(best, stats)
     if best:
         for index, vendor in enumerate(best):
-            name = mapping.item_name(vendor)  # the company - for the log; the item is named after the product
-            values = mapping.column_values(vendor, label)
+            name = mapping.item_name(vendor)  # the vendor's company name - the item's name
+            values = mapping.column_values(vendor, label, job_ids.get(mapping.contact(vendor)[1]))
             try:
                 # The best vendor fills the request itself, so no empty request row is left behind.
                 if index == 0 and _fill_request(board_id, item_id, name, values, stats):
                     filled = True
                     continue
-                new_id, dropped = monday.create_vendor(board_id, product, values)
+                new_id, dropped = monday.create_vendor(board_id, name, values)
                 created.append(new_id)
                 if dropped:
                     stats.setdefault('dropped_columns', {})[new_id] = dropped
@@ -126,10 +128,39 @@ def _search(board_id, item_id, product):
     return {**stats, 'filled_request': filled, 'created': created}
 
 
-def _fill_request(board_id, item_id, name, values, stats):
-    """Writes the vendor into the request item. False (logged) when that fails - it is then created as a new item."""
+def _job_functions(best, stats):
+    """
+    {contact job title: Job Functions item id} for the vendors' contacts. Written
+    the same as a title on that board: matched in code. Otherwise (another language,
+    another wording): one short AI question, no web search. A title with no match
+    is left out - the Job Functions column then stays empty. A failure here never
+    stops the vendors being written.
+    """
+    roles = list(dict.fromkeys(role for role in (mapping.contact(vendor)[1] for vendor in best) if role))
+    if not roles:
+        return {}
     try:
-        _, dropped = monday.fill_request(board_id, item_id, values)
+        titles = monday.job_function_titles()
+        by_key = {matching._fold(title): title for title in titles}
+        matched = {role: by_key[matching._fold(role)] for role in roles if matching._fold(role) in by_key}
+        others = [role for role in roles if role not in matched]
+        if others:
+            stats['ai_calls'] += 1
+            matched.update(research.match_job_titles(others, list(titles)))
+    except Exception as error:  # noqa: BLE001 - the vendors are written without Job Functions
+        log.warning(f'Job functions not matched ({error}) - written without them')
+        return {}
+    stats['job_functions'] = matched
+    return {role: titles[title] for role, title in matched.items()}
+
+
+def _fill_request(board_id, item_id, name, values, stats):
+    """
+    Writes the vendor into the request item and renames it to the vendor.
+    False (logged) when that fails - it is then created as a new item.
+    """
+    try:
+        _, dropped = monday.fill_request(board_id, item_id, values, name)
     except Exception as error:  # noqa: BLE001 - fall back to a new item
         log.error(f'Vendor "{name}" could not be written into the request - creating it as a new item: {error}',
                   extra=_ids(board_id, item_id))
@@ -158,13 +189,67 @@ def select(board_id, product):
     # An existing label is reused, so one product keeps one label.
     product_label = same_labels[0] if same_labels else product.strip()
 
-    # Step 1 - find candidates.
-    candidates, searches = research.find(product, known.display)
-    stats['ai_calls'] += 1
-    stats.update(candidates=len(candidates), searches=searches)
+    stats.update(candidates=0, rounds=0)
+    tried = []      # every candidate step 1 named: a 2nd round must not name them again
+    tried_keys = set()
+    verified, checked = [], 0
+    while (len(verified) < settings.VENDORS_WANTED and checked < settings.MAX_CHECKS
+           and stats['rounds'] < settings.FIND_ROUNDS):
+        # Step 1 - find candidates. The 2nd round is only for a request the 1st left short of 3.
+        try:
+            candidates, searches = research.find(product, known.display + tried)
+        except Exception as error:  # noqa: BLE001
+            if not stats['rounds']:
+                raise   # nothing found at all: the request goes to "Manual research"
+            log.warning(f'Second search round failed ({error}) - keeping the {len(verified)} vendors found')
+            break
+        stats['rounds'] += 1
+        stats['ai_calls'] += 1
+        stats['candidates'] += len(candidates)
+        stats['searches'] += searches
+        queue = _new_candidates(candidates, known, tried, tried_keys, stats)
+        if not queue:
+            break
 
+        # Step 2 - check the best ones in depth, replacing any that fail.
+        while queue and len(verified) < settings.VENDORS_WANTED and checked < settings.MAX_CHECKS:
+            batch_size = min(settings.VENDORS_WANTED - len(verified), settings.MAX_CHECKS - checked, len(queue))
+            batch = [(checked + n, queue.pop(0)) for n in range(batch_size)]
+            checked += batch_size
+            for rank, candidate, vendor, searches, error in _check_all(product, batch):
+                stats['ai_calls'] += 1
+                stats['searches'] += searches
+                who = candidate.get('name') or '?'
+                if error:
+                    stats['rejected'].append(f'{who}: check failed ({error})')
+                    continue
+                problem = (matching.germany_problem(vendor) or matching.product_problem(vendor)
+                           or _name_problem(vendor) or pages.product_page_problem(vendor, product))
+                names = [mapping.item_name(vendor), vendor.get('legal_name'), candidate.get('name')]
+                if not problem and known.repeats(names, vendor.get('website')):
+                    stats['repeats_skipped'] += 1
+                    continue
+                if problem:
+                    stats['rejected'].append(f'{who}: {problem}')
+                    continue
+                known.add(names, vendor.get('website'))
+                verified.append((rank, vendor))
+
+    stats.update(checked=checked, verified=len(verified))
+    best = [vendor for _rank, vendor in sorted(verified, key=lambda pair: _rank_key(*pair))]
+    return best[:settings.VENDORS_WANTED], stats, product_label
+
+
+def _new_candidates(candidates, known, tried, tried_keys, stats):
+    """The candidates worth a deep check, in step 1's order: not on the board, not tried before, plausible."""
     queue = []
     for candidate in candidates:
+        key = matching.company_key(candidate.get('name'))
+        if key in tried_keys:
+            continue    # named again (this round or an earlier one)
+        if key:
+            tried_keys.add(key)
+            tried.append({'name': str(candidate.get('name')), 'website': str(candidate.get('website') or '')})
         if known.repeats(candidate.get('name'), candidate.get('website')):
             stats['repeats_skipped'] += 1
             continue
@@ -172,38 +257,8 @@ def select(board_id, product):
         if problem:
             stats['rejected'].append(f"{candidate.get('name') or '?'}: {problem}")
             continue
-        if any(matching.company_key(candidate.get('name')) == matching.company_key(q.get('name')) for q in queue):
-            continue
         queue.append(candidate)
-
-    # Step 2 - check the best ones in depth, replacing any that fail.
-    verified, checked = [], 0
-    while queue and len(verified) < settings.VENDORS_WANTED and checked < settings.MAX_CHECKS:
-        batch_size = min(settings.VENDORS_WANTED - len(verified), settings.MAX_CHECKS - checked, len(queue))
-        batch = [(checked + n, queue.pop(0)) for n in range(batch_size)]
-        checked += batch_size
-        for rank, candidate, vendor, searches, error in _check_all(product, batch):
-            stats['ai_calls'] += 1
-            stats['searches'] += searches
-            who = candidate.get('name') or '?'
-            if error:
-                stats['rejected'].append(f'{who}: check failed ({error})')
-                continue
-            problem = (matching.germany_problem(vendor) or matching.product_problem(vendor) or _name_problem(vendor)
-                       or pages.product_page_problem(vendor, product))
-            names = [mapping.item_name(vendor), vendor.get('legal_name'), candidate.get('name')]
-            if not problem and known.repeats(names, vendor.get('website')):
-                stats['repeats_skipped'] += 1
-                continue
-            if problem:
-                stats['rejected'].append(f'{who}: {problem}')
-                continue
-            known.add(names, vendor.get('website'))
-            verified.append((rank, vendor))
-
-    stats.update(checked=checked, verified=len(verified))
-    best = [vendor for _rank, vendor in sorted(verified, key=lambda pair: _rank_key(*pair))]
-    return best[:settings.VENDORS_WANTED], stats, product_label
+    return queue
 
 
 def _same_product_labels(product, labels, stats):

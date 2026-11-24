@@ -201,7 +201,7 @@ def test_missing_values_are_left_out_never_placeholders():
                     contact_person_phone='unknown', vendor_type='other', delivery_regions=['Europe'],
                     certifications=[])
     values = mapping.column_values(sparse, 'iPhone')
-    assert set(values) == {settings.SEARCH_SOURCE, settings.PRODUCT_CATEGORIES, settings.COUNTRY,
+    assert set(values) == {settings.SEARCH_SOURCE, settings.PRODUCT_NAME, settings.COUNTRY,
                            settings.LEGAL_NAME, settings.COMPLETE_ADDRESS}
     assert 'N/A' not in str(values)
 
@@ -258,3 +258,15 @@ def test_an_address_without_street_number_or_postal_code_is_rejected(address, pr
     """Papernet came through with "München, Germany" and a postal code given on its own."""
     assert matching.germany_problem(vendor('A', complete_address=address, postal_code='80331')) == problem
 
+
+
+@pytest.mark.parametrize('link, expected', [
+    ('https://www.a.de/downloads/katalog-2026.pdf', 'https://www.a.de/downloads/katalog-2026.pdf'),
+    ('https://shop.a.de/katalog', 'https://shop.a.de/katalog'),          # a subdomain of their site
+    ('https://www.other.de/a-katalog.pdf', ''),                          # not the vendor's own website
+    ('https://www.a.de/products/iphone', ''),                            # the product page is not a catalogue
+    ('https://www.a.de/products/iphone/', ''),
+    (None, ''), ('N/A', ''),
+])
+def test_only_the_vendors_own_catalogue_is_used_never_the_product_page(link, expected):
+    assert mapping.catalogue(vendor('A', catalogue_url=link)) == expected

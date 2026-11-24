@@ -38,7 +38,7 @@ def test_the_best_vendor_fills_the_request_so_no_empty_row_is_left(board, ai):
     assert item_id == REQUEST_ID
     assert values[settings.LEGAL_NAME] == 'Alpha Mobile GmbH'
     assert values[settings.SEARCH_SOURCE] == {'label': 'Research Completed'}
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}
+    assert values[settings.PRODUCT_NAME] == 'iPhone'
     request = board.items[REQUEST_ID]
     assert values['name'] == 'Alpha Mobile'
     assert request['name'] == 'Alpha Mobile', 'the request is renamed from the product to the vendor'
@@ -194,7 +194,7 @@ def test_a_vendor_item_is_named_after_the_vendor_and_created_in_group_2_with_eve
     assert board.moves == [(item['id'], 'new_group')], '... then moved to group 2, like the request'
     assert board.items[item['id']]['group'] == 'new_group'
     assert values[settings.SEARCH_SOURCE] == {'label': 'Research Completed'}
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}
+    assert values[settings.PRODUCT_NAME] == 'iPhone'
     assert values[settings.COUNTRY] == {'countryCode': 'DE', 'countryName': 'Germany'}
     assert values[settings.LEGAL_NAME] == 'Alpha Mobile GmbH'
     assert values[settings.VAT_ID] == 'DE814093141'
@@ -211,7 +211,7 @@ def test_never_more_than_three_vendors(board, ai):
     assert len(names(board)) == 3
     assert len(board.fills) == 1 and len(board.created) == 2
     assert len(ai.checks) == 3, 'only the top 3 are deep-checked when all pass'
-    assert summary['ai_calls'] == 4
+    assert summary['ai_calls'] == 5, 'find + 3 checks + 1 category pick (the request has no category)'
 
 
 def test_fewer_good_vendors_means_fewer_items_never_weak_ones(board, ai):
@@ -274,14 +274,13 @@ def test_a_vendor_already_on_the_board_for_the_product_is_not_returned_again(boa
 def test_the_same_product_in_another_case_counts_as_a_repeat(board, ai, request_name):
     board.items[REQUEST_ID]['name'] = request_name
     board.add(500, 'Tech World', products=['iPhone'], search_source='AI Bot')
-    board.dropdown_labels = ['iPhone']
     ai.candidates = [candidate('Tech World'), candidate('A')]
 
     service.run(BOARD, REQUEST_ID)
 
     assert names(board) == ['A']
     [(_item_id, values)] = board.fills
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone']}, \
+    assert values[settings.PRODUCT_NAME] == 'iPhone', \
         'the existing label is reused, so "iphone" does not become a second label'
 
 
@@ -294,7 +293,7 @@ def test_iphone_15_is_a_different_product(board, ai):
 
     assert names(board) == ['Tech World']
     [(_item_id, values)] = board.fills
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['iPhone 15']}
+    assert values[settings.PRODUCT_NAME] == 'iPhone 15'
 
 
 def test_a_vendor_row_named_after_the_product_is_recognised_by_its_legal_name(board, ai):
@@ -440,7 +439,6 @@ def euro_pallets_on_the_board(board):
     for item_id, company in ((500, 'Krenzer'), (501, 'HTR Paletten'), (502, 'Falkenhahn')):
         board.add(item_id, EURO, group='new_group', products=[EURO], search_source='Research Completed',
                   legal_name=f'{company} GmbH', website=f'https://www.{company.lower().replace(" ", "-")}.de')
-    board.dropdown_labels = [EURO]
 
 
 @pytest.mark.parametrize('request_name', ['europallets', 'Euro-Pallets', 'EURO PALLETS'])
@@ -455,7 +453,7 @@ def test_the_same_product_without_spaces_or_hyphens_needs_no_ai_question(board, 
     assert ai.matches == [], 'decided in code'
     assert summary['same_product_labels'] == [EURO]
     [(_item_id, values)] = board.fills
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': [EURO]}, 'the existing label is reused'
+    assert values[settings.PRODUCT_NAME] == EURO, 'the existing label is reused'
 
 
 @pytest.mark.parametrize('request_name', ['eurppallets', 'Europaletten', 'Euro pallet'])
@@ -472,7 +470,7 @@ def test_a_typo_plural_or_translation_of_the_same_product_returns_no_existing_ve
     assert summary['repeats_skipped'] == 3
     assert len(ai.matches) == 1 and request_name in ai.matches[0] and f'"{EURO}"' in ai.matches[0]
     assert ai.web_search[ai.prompts.index(ai.matches[0])] is False, 'the same-product question has no web search'
-    assert all(values[settings.PRODUCT_CATEGORIES] == {'labels': [EURO]}
+    assert all(values[settings.PRODUCT_NAME] == EURO
                for values in [v for _i, v in board.fills] + [item['values'] for item in board.created])
 
 
@@ -486,7 +484,7 @@ def test_a_different_product_may_return_a_vendor_already_on_the_board(board, ai)
 
     assert names(board) == ['Krenzer'], 'found for another product, so allowed'
     [(_item_id, values)] = board.fills
-    assert values[settings.PRODUCT_CATEGORIES] == {'labels': ['Pen']}
+    assert values[settings.PRODUCT_NAME] == 'Pen'
 
 
 def test_only_labels_from_the_board_are_accepted_from_the_ai(board, ai):
@@ -620,3 +618,200 @@ def test_a_second_round_with_nothing_new_stops(board, ai):
     assert summary['rounds'] == 2 and len(ai.checks) == 1
     assert names(board) == ['A']
 
+
+
+# ---- Product Category: the request's, copied to every new vendor row -----------------------
+
+CLEANING = 'Cleaning & Hygiene'
+
+
+def test_the_new_vendor_rows_get_the_requests_product_category(board, ai):
+    board.items[REQUEST_ID]['category'] = [CLEANING]
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones'), candidate('Gamma Tech')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert len(board.created) == 2
+    assert all(item['values'][settings.PRODUCT_CATEGORY] == {'labels': [CLEANING]} for item in board.created)
+    [(_item_id, request_values)] = board.fills
+    assert settings.PRODUCT_CATEGORY not in request_values, 'the request row keeps its own category untouched'
+    assert summary['product_category'] == [CLEANING]
+
+
+def test_only_one_category_is_written_even_when_the_request_has_several(board, ai):
+    board.items[REQUEST_ID]['category'] = [CLEANING, 'Packaging']
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones'), candidate('Gamma Tech')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert all(item['values'][settings.PRODUCT_CATEGORY] == {'labels': [CLEANING]} for item in board.created)
+    assert ai.category_questions == []
+
+
+def test_a_category_set_on_the_request_during_the_search_is_still_copied(board, ai, monkeypatch):
+    """Read when the vendors are written, not when the search starts."""
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    def set_category_then_answer(prompt, web_search=True):
+        board.items[REQUEST_ID]['category'] = [CLEANING]
+        return ai.post(prompt, web_search)
+
+    monkeypatch.setattr(research, '_post', set_category_then_answer)
+
+    service.run(BOARD, REQUEST_ID)
+
+    [item] = board.created
+    assert item['values'][settings.PRODUCT_CATEGORY] == {'labels': [CLEANING]}
+
+
+def test_without_a_category_on_the_request_the_ai_picks_one_for_every_row(board, ai):
+    """A request typed by hand has no purchase requirement, so no category: the AI picks one."""
+    board.items[REQUEST_ID]['name'] = 'Glass cleaner'
+    ai.category = CLEANING
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones'), candidate('Gamma Tech')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    [(_item_id, request_values)] = board.fills
+    assert request_values[settings.PRODUCT_CATEGORY] == {'labels': [CLEANING]}, 'the request row gets it too'
+    assert all(item['values'][settings.PRODUCT_CATEGORY] == {'labels': [CLEANING]} for item in board.created)
+    [question] = ai.category_questions
+    assert '"Glass cleaner"' in question and '- "Packaging"' in question, 'asked with the product and the options'
+    assert ai.web_search[ai.prompts.index(question)] is False, 'no web search for the category'
+    assert summary['product_category_by_ai'] is True
+
+
+def test_the_ai_is_not_asked_when_the_request_has_a_category(board, ai):
+    board.items[REQUEST_ID]['category'] = ['Packaging']
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert ai.category_questions == []
+    assert board.created[0]['values'][settings.PRODUCT_CATEGORY] == {'labels': ['Packaging']}
+
+
+def test_when_no_category_fits_the_ai_names_a_new_one_for_every_row(board, ai):
+    """Basketball got "Other": now the AI names a broad new category, created on the board."""
+    board.items[REQUEST_ID]['name'] = 'Basketball'
+    ai.category = 'Sports & Leisure'
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones'), candidate('Gamma Tech')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    [(_item_id, request_values)] = board.fills
+    assert request_values[settings.PRODUCT_CATEGORY] == {'labels': ['Sports & Leisure']}
+    assert all(item['values'][settings.PRODUCT_CATEGORY] == {'labels': ['Sports & Leisure']}
+               for item in board.created)
+    assert summary['product_category_new'] is True
+
+
+def test_a_category_created_earlier_is_offered_and_reused(board, ai):
+    board.category_options = ['Cleaning & Hygiene', 'Other', 'Sports & Leisure']
+    ai.category = 'sports & leisure'
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    [question] = ai.category_questions
+    assert '- "Sports & Leisure"' in question, 'the AI sees the category created by an earlier search'
+    assert board.created[0]['values'][settings.PRODUCT_CATEGORY] == {'labels': ['Sports & Leisure']}
+    assert summary['product_category_new'] is False
+
+
+@pytest.mark.parametrize('answer', ['iPhone', None])
+def test_an_unusable_ai_answer_writes_no_category(board, ai, answer):
+    ai.category = answer
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    [(_item_id, request_values)] = board.fills
+    assert settings.PRODUCT_CATEGORY not in request_values
+    assert settings.PRODUCT_CATEGORY not in board.created[0]['values']
+
+
+def test_if_the_category_question_fails_the_vendors_are_still_written(board, ai):
+    ai.category_error = requests.Timeout('slow')
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones']
+    assert settings.PRODUCT_CATEGORY not in board.created[0]['values']
+    assert summary['result'] == 'Research Completed'
+
+
+def test_no_vendor_found_asks_no_category_question(board, ai):
+    ai.candidates = []
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert ai.category_questions == []
+
+
+def test_when_the_category_cannot_be_read_the_vendors_are_still_written(board, ai):
+    """Unknown: the AI is not asked either, so a category the request may have is never overwritten."""
+    board.items[REQUEST_ID]['category'] = [CLEANING]
+    board.category_error = requests.ConnectionError('monday down for a moment')
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones']
+    assert settings.PRODUCT_CATEGORY not in board.created[0]['values']
+    assert summary['result'] == 'Research Completed'
+    assert ai.category_questions == []
+
+
+
+# ---- Catalogue / Documents: the vendor's own catalogue as a link, or nothing ---------------
+
+def catalogue_of(name):
+    return f'https://www.{name.lower().replace(" ", "-")}.de/katalog.pdf'
+
+
+def test_a_vendors_catalogue_is_added_as_a_link_to_its_row(board, ai):
+    ai.vendors = {name: vendor(name, catalogue_url=catalogue_of(name)) for name in ('Alpha Mobile', 'Beta Phones')}
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    new_id = board.created[0]['id']
+    assert board.catalogues == [
+        (REQUEST_ID, [{'fileType': 'link', 'name': 'Catalogue - Alpha Mobile', 'linkToFile': catalogue_of('Alpha Mobile')}]),
+        (new_id, [{'fileType': 'link', 'name': 'Catalogue - Beta Phones', 'linkToFile': catalogue_of('Beta Phones')}]),
+    ]
+    assert summary['catalogues'] == 2
+
+
+def test_no_catalogue_leaves_the_column_empty_never_the_product_page(board, ai):
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=None),
+                  'Beta Phones': vendor('Beta Phones', catalogue_url='https://www.beta-phones.de/products/iphone')}
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert board.catalogues == []
+
+
+def test_a_file_attached_to_the_request_by_hand_is_never_replaced(board, ai):
+    board.items[REQUEST_ID]['files'] = ['purchase-spec.pdf']
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=catalogue_of('Alpha Mobile'))}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert board.catalogues == []
+    assert board.items[REQUEST_ID]['files'] == ['purchase-spec.pdf']
+
+
+def test_a_failed_catalogue_link_does_not_stop_the_vendors(board, ai):
+    board.catalogue_error = requests.ConnectionError('monday down for a moment')
+    ai.vendors = {name: vendor(name, catalogue_url=catalogue_of(name)) for name in ('Alpha Mobile', 'Beta Phones')}
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones']
+    assert summary['result'] == 'Research Completed'

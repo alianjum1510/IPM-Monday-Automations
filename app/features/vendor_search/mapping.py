@@ -209,6 +209,21 @@ def contact(vendor):
     return name, role
 
 
+def catalogue(vendor):
+    """
+    The vendor's catalogue link, or '' - only on the vendor's own website, and never
+    the product page (a single product page is not a catalogue).
+    """
+    link = url(vendor.get('catalogue_url'))
+    site = domain_of(url(vendor.get('website')))
+    host = domain_of(link)
+    if not link or not site or not (host == site or host.endswith('.' + site)):
+        return ''
+    if link.rstrip('/') == url(vendor.get('product_evidence_url')).rstrip('/'):
+        return ''
+    return link
+
+
 def item_name(vendor):
     return text(vendor.get('company_name'), 255) or text(vendor.get('legal_name'), 255)
 
@@ -221,7 +236,7 @@ def column_values(vendor, product_label, job_function_id=None):
     """
     values = {
         settings.SEARCH_SOURCE: {'label': settings.RESEARCH_COMPLETED},
-        settings.PRODUCT_CATEGORIES: {'labels': [product_label]},
+        settings.PRODUCT_NAME: product_label,
         settings.COUNTRY: {'countryCode': settings.SEARCH_AREA_CODE, 'countryName': settings.SEARCH_AREA},
     }
 

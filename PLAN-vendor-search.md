@@ -351,3 +351,48 @@ promote the previous app version. No other feature depends on this one.
 - `matching.germany_problem` now also requires, in the address itself, a 5-digit postal code and a street
   with a house number (`STREET_AND_NUMBER`). Otherwise the company is rejected and the next candidate (or
   the second search round) replaces it.
+
+## Change: Name of Product is a text column (2026-11-24)
+
+- **Why:** the old **Name of Product** was the dropdown `dropdown_mm9512qn`, and every search added a
+  new option to it (21 options by 24 Nov, including test values like "xyz").
+- **Now:** the product is written as plain text into the new **Name of Product** text column
+  `text_mm9dq3g3` (`settings.PRODUCT_NAME`). The no-repeat check reads the same column; a comma in a
+  product name no longer splits it.
+- **Removed:** reading the dropdown's option list (`product_labels`, `_dropdown_labels`). The same-product
+  check now uses the product names written on the items (`product_names`).
+- **Board:** the old dropdown was renamed "Name of Product (old)". Delete it only **after** this code is
+  deployed. Rows created before the change have their product only in the old dropdown; copy them to the
+  text column once, or they are not counted by the no-repeat check.
+
+## Change: Product Category on every vendor row (2026-11-24)
+
+- **Why:** "Product Catagory From Purchase Requirement" (`dropdown_mm9cm8vk`, `settings.PRODUCT_CATEGORY`)
+  comes from the purchase requirement and was only on the request row; the 2nd and 3rd vendors had none.
+- **Now:** when the vendors are written, the request's category is read (`monday.request_category`) and
+  copied to every new vendor row. Read at that moment, not at the start, so a category set during the
+  search is included. The request row itself is not rewritten.
+- **No category on the request** (a request typed by hand, no purchase requirement): the AI picks one of
+  the column's active options for the product (`research.pick_category`, one short question, no web
+  search) and it is written to **all** vendor rows, the request included.
+- **None of the options fits** (basketball got "Other"): the AI names a new broad category in the same
+  style (e.g. "Sports & Leisure", at most `MAX_CATEGORY_LENGTH` characters, no comma, never the product
+  name). It is created on the board (`create_labels_if_missing`) and offered to - so reused by - later
+  searches. An unusable answer (empty, too long, a comma, the product name) or a failed question: no
+  category. Reading the request's category fails: the AI is not asked either, so a
+  category the request may have is never overwritten.
+- **❌Purchase Request** (`text_mm9d22sk`) is never written by Vendor Search. Two board automations
+  (1720152195, 1720154002: "when an item is created -> ❌Purchase Request = item name") fill it, also on
+  the vendor rows Vendor Search creates in group 1.
+
+## Change: the vendor's catalogue in Catalogue / Documents (2026-11-24)
+
+- **What:** the deep check also asks for the vendor's own product catalogue (a PDF or catalogue page on
+  its website, `catalogue_url`). It is added to **Catalogue / Documents** (`file_mm947aza`,
+  `settings.CATALOGUE`) as a link named "Catalogue - <vendor>" with `update_assets_on_item`
+  (file type `link`; a files column takes no value through `change_multiple_column_values`).
+- **Never the product page:** no catalogue -> the column stays empty. `mapping.catalogue` drops a link on
+  another website and a link equal to the product page.
+- **The request row:** the link is added only when its Catalogue / Documents column is empty, so a file
+  attached by hand is never replaced. A failed link is logged; the vendor row is already written.
+- **Cost:** no extra AI call (part of the deep check); one monday call per row with a catalogue.

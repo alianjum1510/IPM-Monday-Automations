@@ -142,6 +142,30 @@ def match_job_titles(roles, titles):
     return {role: found[role] for role in roles if found.get(role) in titles}
 
 
+def pick_category(product, labels):
+    """
+    (category, new?) for the product. An option from `labels` (the Product Category
+    column) when one fits - returned in the board's spelling. Otherwise the broad new
+    category the AI named (e.g. "Sports & Leisure"), which is then created on the
+    board and reused by later searches. (None, False) for an answer that is not a
+    usable category: empty, too long, with a comma, or just the product name.
+    No web search: one short answer.
+    """
+    text, _ = ask(prompts.category_prompt(product, labels), 'product category', web_search=False)
+    picked = re.sub(r'\s+', ' ', str(parse_json(text).get('category') or '')).strip()
+    existing = {_category_key(label): label for label in labels}
+    if _category_key(picked) in existing:
+        return existing[_category_key(picked)], False
+    if (not picked or len(picked) > settings.MAX_CATEGORY_LENGTH or ',' in picked
+            or _category_key(picked) == _category_key(product)):
+        return None, False
+    return picked, True
+
+
+def _category_key(text):
+    return re.sub(r'[^a-z0-9äöüß]+', ' ', str(text or '').casefold()).strip()
+
+
 def find(product, existing):
     """Step 1: up to settings.MAX_CANDIDATES candidates, best first. Returns (candidates, searches)."""
     text, searches = ask(prompts.find_prompt(product, existing), 'find')

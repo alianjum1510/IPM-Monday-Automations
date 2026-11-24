@@ -28,7 +28,15 @@ DONE_GROUP_ID = 'new_group'
 
 # ---- Columns (Vendor Mining Board) ----------------------------------------------
 SEARCH_SOURCE = 'color_mm95j9rp'
-PRODUCT_CATEGORIES = 'dropdown_mm9512qn'
+# "Name of Product" (text): the product a vendor was found for. Replaced the dropdown
+# dropdown_mm9512qn on 2026-11-24, which grew one new label with every search.
+PRODUCT_NAME = 'text_mm9dq3g3'
+# "Product Catagory From Purchase Requirement" (dropdown): set on the request from the
+# purchase requirement. The 2nd and 3rd vendors get the request's labels copied.
+PRODUCT_CATEGORY = 'dropdown_mm9cm8vk'
+# A category the AI names when none of the column's options fits (e.g. "Sports & Leisure")
+# is created as a new option - at most this long, and reused by later searches.
+MAX_CATEGORY_LENGTH = 40
 COUNTRY = 'country_mm95yne6'
 LEGAL_NAME = 'text_mm96vz3j'
 COMPLETE_ADDRESS = 'text_mm96j9a1'
@@ -47,13 +55,16 @@ DELIVERY_REGIONS = 'dropdown_mm96c0jr'
 CERTIFICATIONS = 'dropdown_mm96f573'
 # "Job Functions and Departments" (connect boards): the contact's job title is
 # linked to the matching item on that board; the Department mirror then fills itself.
+# "Catalogue / Documents" (files column): the vendor's own catalogue, added as a link.
+# Left empty when the vendor publishes none - never filled with the product page.
+CATALOGUE = 'file_mm947aza'
 JOB_FUNCTIONS = 'board_relation_mm9685qm'
 JOB_FUNCTIONS_BOARD = 5108003087
 
 # What a vendor item is still created with when monday rejects a column without
 # naming it. Search Source must always be there: with it filled, the "item
 # created" automation never treats the new vendor as a request.
-CORE_COLUMNS = (SEARCH_SOURCE, PRODUCT_CATEGORIES, COUNTRY, LEGAL_NAME, COMPLETE_ADDRESS)
+CORE_COLUMNS = (SEARCH_SOURCE, PRODUCT_NAME, COUNTRY, LEGAL_NAME, COMPLETE_ADDRESS)
 
 # ---- Search Source labels (exactly as on the board) -----------------------------
 AI_BOT = 'AI Bot'

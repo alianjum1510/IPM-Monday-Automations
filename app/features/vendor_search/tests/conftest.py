@@ -83,7 +83,6 @@ class FakeBoard:
 
     def __init__(self):
         self.items = {}
-        self.dropdown_labels = []
         self.status_writes = []
         self.moves = []
         self.fills = []             # (item_id, values) written into an existing item
@@ -94,14 +93,27 @@ class FakeBoard:
         # The Job Functions board: (title, item id). Listed twice like the real board.
         self.job_titles = [('Geschäftsführer', 501), ('Vertriebsleiter', 502), ('Geschäftsführer', 503)]
         self.job_titles_error = None
+        self.category_error = None  # raised when the request's Product Category is read
+        self.catalogues = []        # (item_id, files) added to Catalogue / Documents
+        self.catalogue_error = None
+        # The Product Category column's options, as on the board (Other is one of them).
+        self.category_options = ['Cleaning & Hygiene', 'Packaging', 'Office Supplies', 'Other']
         self.add(REQUEST_ID, 'iPhone')
 
     def add(self, item_id, name, group=settings.REQUEST_GROUP_ID, search_source='', products=(), website='',
-            legal_name=''):
+            legal_name='', category=()):
         self.items[item_id] = {'id': item_id, 'name': name, 'group': group, 'search_source': search_source,
-                               'products': list(products), 'website': website, 'legal_name': legal_name}
+                               'products': list(products), 'website': website, 'legal_name': legal_name,
+                               'category': list(category)}
 
     def graphql(self, query, variables):
+        if 'update_assets_on_item' in query:
+            assert variables['columnId'] == settings.CATALOGUE
+            if self.catalogue_error:
+                raise self.catalogue_error
+            self.catalogues.append((int(variables['itemId']), variables['files']))
+            self.items[int(variables['itemId'])]['files'] = [f['linkToFile'] for f in variables['files']]
+            return {'update_assets_on_item': {'id': variables['itemId']}}
         if 'JobTitles' in query:
             assert variables['boardId'] == str(settings.JOB_FUNCTIONS_BOARD)
             if self.job_titles_error:
@@ -127,22 +139,29 @@ class FakeBoard:
         if 'items_page' in query:
             return {'boards': [{'items_page': {'cursor': None, 'items': [
                 {'id': str(item['id']), 'name': item['name'], 'column_values': [
-                    {'id': settings.PRODUCT_CATEGORIES, 'text': ', '.join(item['products'])},
+                    {'id': settings.PRODUCT_NAME, 'text': item['products'][0] if item['products'] else ''},
                     {'id': settings.WEBSITE, 'text': item['website']},
                     {'id': settings.LEGAL_NAME, 'text': item['legal_name']},
                 ]} for item in self.items.values()
             ]}}]}
         if 'settings_str' in query:
-            labels = [{'id': n + 1, 'name': label} for n, label in enumerate(self.dropdown_labels)]
-            return {'boards': [{'columns': [{'id': settings.PRODUCT_CATEGORIES,
-                                             'settings_str': json.dumps({'labels': labels})}]}]}
+            assert variables['columns'] == [settings.PRODUCT_CATEGORY]
+            labels = [{'id': n + 1, 'name': name} for n, name in enumerate(self.category_options)]
+            return {'boards': [{'columns': [{'id': settings.PRODUCT_CATEGORY,
+                                             'settings_str': json.dumps({'labels': labels, 'deactivated_labels': []})}]}]}
         if 'items(ids' in query:
+            if settings.PRODUCT_CATEGORY in variables['columns'] and self.category_error:
+                raise self.category_error
             item = self.items.get(int(variables['itemId'][0]))
             if not item:
                 return {'items': []}
             return {'items': [{'id': str(item['id']), 'name': item['name'], 'board': {'id': str(BOARD)},
                                'group': {'id': item['group']},
-                               'column_values': [{'id': settings.SEARCH_SOURCE, 'text': item['search_source']}]}]}
+                               'column_values': [{'id': settings.SEARCH_SOURCE, 'text': item['search_source']},
+                                                 {'id': settings.PRODUCT_CATEGORY,
+                                                  'text': ', '.join(item.get('category') or [])},
+                                                 {'id': settings.CATALOGUE,
+                                                  'text': ', '.join(item.get('files') or [])}]}]}
         raise AssertionError(f'unexpected query: {query}')
 
     def _fill(self, variables):
@@ -152,7 +171,7 @@ class FakeBoard:
         self.fills.append((item['id'], values))
         item.update(name=values.get('name', item['name']),
                     search_source=values.get(settings.SEARCH_SOURCE, {}).get('label', item['search_source']),
-                    products=values.get(settings.PRODUCT_CATEGORIES, {}).get('labels', item['products']),
+                    products=[values[settings.PRODUCT_NAME]] if values.get(settings.PRODUCT_NAME) else item['products'],
                     website=(values.get(settings.WEBSITE) or {}).get('url', item['website']),
                     legal_name=values.get(settings.LEGAL_NAME, item['legal_name']))
         return {'change_multiple_column_values': {'id': variables['itemId']}}
@@ -171,7 +190,7 @@ class FakeBoard:
         self.created.append({'id': item_id, 'name': variables['name'], 'group': variables['groupId'], 'values': values})
         self.add(item_id, variables['name'], group=variables['groupId'],
                  search_source=values.get(settings.SEARCH_SOURCE, {}).get('label', ''),
-                 products=values.get(settings.PRODUCT_CATEGORIES, {}).get('labels', []),
+                 products=[values[settings.PRODUCT_NAME]] if values.get(settings.PRODUCT_NAME) else [],
                  website=(values.get(settings.WEBSITE) or {}).get('url', ''),
                  legal_name=values.get(settings.LEGAL_NAME, ''))
         return {'create_item': {'id': str(item_id)}}
@@ -184,6 +203,7 @@ class FakeBoard:
 FIND = 'You are a procurement researcher'
 MATCH = 'A buyer asked for this product'
 JOB = 'Match each job title'
+CATEGORY = 'Pick the one product category'
 
 
 class FakeAI:
@@ -199,6 +219,8 @@ class FakeAI:
         self.same_products = []     # the labels the AI calls the same product
         self.match_error = None
         self.job_matches = {}       # role -> title the AI answers
+        self.category = 'Cleaning & Hygiene'  # the category the AI picks
+        self.category_error = None
         self.find_error = None
         self.prompts = []
         self.web_search = []        # whether each call asked for web search
@@ -212,6 +234,10 @@ class FakeAI:
             return self._answer({'matches': self.same_products})
         if prompt.startswith(JOB):
             return self._answer({'matches': self.job_matches})
+        if prompt.startswith(CATEGORY):
+            if self.category_error:
+                raise self.category_error
+            return self._answer({'category': self.category})
         if prompt.startswith(FIND):
             if self.find_error:
                 raise self.find_error
@@ -242,7 +268,11 @@ class FakeAI:
 
     @property
     def checks(self):
-        return [p for p in self.prompts if not p.startswith((FIND, MATCH, JOB))]
+        return [p for p in self.prompts if not p.startswith((FIND, MATCH, JOB, CATEGORY))]
+
+    @property
+    def category_questions(self):
+        return [p for p in self.prompts if p.startswith(CATEGORY)]
 
     @property
     def job_questions(self):

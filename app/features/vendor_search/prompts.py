@@ -53,6 +53,24 @@ Answer with JSON only, one entry per job title:
 {{"matches": {{"<job title>": "<title from our list, or null>"}}}}"""
 
 
+def category_prompt(product, labels):
+    listed = '\n'.join(f'- {json.dumps(label, ensure_ascii=False)}' for label in labels)
+    return f"""Pick the one product category this product belongs to.
+
+PRODUCT: {json.dumps(product, ensure_ascii=False)}
+
+OUR CATEGORIES:
+{listed}
+
+Rules:
+- Use a category from our list whenever one fits, copied exactly as listed. Judge by what the product is and what it is used for (e.g. a glass cleaner is cleaning, a cardboard box is packaging).
+- Only when none of our categories fits, name a new one: a broad product group in English, in the same style as ours (e.g. "Sports & Leisure", "Medical Supplies"), at most {settings.MAX_CATEGORY_LENGTH} characters, no commas. Never the product name itself and never a single product.
+- Do not use "Other" - name the fitting group instead.
+
+Answer with JSON only:
+{{"category": "<category from our list, or a new broad category>"}}"""
+
+
 def find_prompt(product, existing, limit=settings.MAX_CANDIDATES):
     area = settings.SEARCH_AREA
     return f"""You are a procurement researcher. Find companies based in {area} that sell this exact product:
@@ -102,7 +120,8 @@ STEPS
 5. LinkedIn: search for "site:linkedin.com/company" together with the company name, and give the company page URL.
 6. Employees: look on the LinkedIn company page ("Company size" / "Unternehmensgröße"), northdata.de, the company website ("Über uns", "Unternehmen", "Karriere") and press articles.
 7. Also find: year founded, a general company email and phone, a named contact person (sales / purchasing / managing director) with their direct phone if published, the regions in {area} it delivers to, and its certifications (e.g. ISO 9001).
-8. VAT IDs in {area} start with "DE" followed by 9 digits.
+8. Catalogue: if the company publishes a product catalogue on its own website - a PDF catalogue (e.g. "Produktkatalog", "Katalog", "Broschüre") or a catalogue page - give its URL. A single product page is NOT a catalogue. If there is none, use null.
+9. VAT IDs in {area} start with "DE" followed by 9 digits.
 
 STRICT RULES
 - Only facts you found in a source. If you cannot find a value, use null. Never guess or estimate.
@@ -138,4 +157,5 @@ Answer with JSON only, no other text:
   "contact_person_phone": "phone or null",
   "vendor_type": "Manufacturer | Distributor | Reseller | null",
   "delivery_regions": ["..."],
-  "certifications": ["..."]}}"""
+  "certifications": ["..."],
+  "catalogue_url": "https://... the company's own product catalogue (PDF or catalogue page), or null"}}"""

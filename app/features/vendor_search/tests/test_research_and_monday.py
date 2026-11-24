@@ -129,6 +129,7 @@ def test_prompts_name_the_product_the_area_and_the_known_vendors():
         assert example not in check, f'no example value the model could copy: {example}'
     assert '"product_terms"' in check and "company's own website" in check.lower()
     assert '"contact_person_role"' in check and 'without the job title' in check
+    assert '"catalogue_url"' in check and 'A single product page is NOT a catalogue' in check
 
 
 # ---- monday ---------------------------------------------------------------------------------
@@ -237,10 +238,27 @@ def test_the_request_is_filled_in_place_with_the_same_column_retry(monkeypatch):
     assert settings.COMPANY_EMAIL not in json.loads(variables['values'])
 
 
-def test_dropdown_labels_are_read_from_both_settings_formats():
-    assert monday._dropdown_labels(json.dumps({'labels': [{'id': 1, 'name': 'iPhone'}]})) == ['iPhone']
-    assert monday._dropdown_labels(json.dumps({'labels': {'1': 'iPhone'}})) == ['iPhone']
-    assert monday._dropdown_labels('not json') == []
+def test_name_of_product_is_a_text_column_read_whole(monkeypatch):
+    """Name of Product is plain text now: a comma in a product name does not split it."""
+    def graphql(query, variables):
+        assert settings.PRODUCT_NAME in variables['columns']
+        return {'boards': [{'items_page': {'cursor': None, 'items': [
+            {'id': '1', 'name': 'A', 'column_values': [{'id': settings.PRODUCT_NAME, 'text': 'Gloves, nitrile'}]},
+            {'id': '2', 'name': 'B', 'column_values': [{'id': settings.PRODUCT_NAME, 'text': ' Gloves, nitrile '}]},
+            {'id': '3', 'name': 'C', 'column_values': [{'id': settings.PRODUCT_NAME, 'text': ''}]},
+        ]}}]}
+
+    monkeypatch.setattr(monday, 'graphql', graphql)
+    items = monday.board_vendors(BOARD)
+    assert [item['products'] for item in items] == [['Gloves, nitrile'], ['Gloves, nitrile'], []]
+    assert monday.product_names(items) == ['Gloves, nitrile']
+
+
+def test_the_product_is_written_as_plain_text_never_a_dropdown_label():
+    from app.features.vendor_search import mapping
+    values = mapping.column_values(vendor('A'), 'Glass cleaner')
+    assert values[settings.PRODUCT_NAME] == 'Glass cleaner'
+    assert 'dropdown_mm9512qn' not in values, 'the old Name of Product dropdown is never written'
 
 
 def test_monday_errors_raise_with_the_errors_kept(monkeypatch):
@@ -272,3 +290,39 @@ def test_filling_the_request_renames_it_and_the_name_survives_the_core_column_re
     assert sent[0]['name'] == 'A'
     assert sent[1]['name'] == 'A'
     assert set(sent[1]) == set(settings.CORE_COLUMNS) | {'name'}
+
+
+def test_category_options_skip_deactivated_ones_and_read_both_settings_formats(monkeypatch):
+    def answering(settings_str):
+        return lambda query, variables: {'boards': [{'columns': [{'id': settings.PRODUCT_CATEGORY,
+                                                                   'settings_str': settings_str}]}]}
+
+    monkeypatch.setattr(monday, 'graphql', answering(json.dumps(
+        {'labels': [{'id': 1, 'name': 'Packaging'}, {'id': 2, 'name': 'Old one'}], 'deactivated_labels': [2]})))
+    assert monday.category_labels(BOARD) == ['Packaging']
+    monkeypatch.setattr(monday, 'graphql', answering(json.dumps({'labels': {'1': 'Packaging'}})))
+    assert monday.category_labels(BOARD) == ['Packaging']
+    monkeypatch.setattr(monday, 'graphql', answering('not json'))
+    assert monday.category_labels(BOARD) == []
+
+
+@pytest.mark.parametrize('answer, expected', [
+    ('Packaging', ('Packaging', False)),
+    ('packaging', ('Packaging', False)),                      # the board's spelling is kept
+    (' Sports  &  Leisure ', ('Sports & Leisure', True)),      # none fits: a new broad category
+    ('Basketball', (None, False)),                            # never the product name itself
+    ('Sports, Leisure', (None, False)),                       # a comma would split a dropdown label
+    ('S' * 41, (None, False)),                                # too long for a category
+    ('', (None, False)),
+    (None, (None, False)),
+])
+def test_the_category_is_one_from_the_list_or_a_new_broad_one(monkeypatch, answer, expected):
+    monkeypatch.setattr(research, '_post', answering({'output_text': json.dumps({'category': answer})}))
+    assert research.pick_category('Basketball', ['Packaging', 'Other']) == expected
+
+
+def test_the_category_prompt_allows_a_new_category_only_when_none_fits():
+    prompt = prompts.category_prompt('Basketball', ['Packaging', 'Other'])
+    assert '"Basketball"' in prompt and '- "Packaging"' in prompt
+    assert 'Only when none of our categories fits, name a new one' in prompt
+    assert 'Never the product name itself' in prompt and 'Do not use "Other"' in prompt

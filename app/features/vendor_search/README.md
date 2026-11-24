@@ -27,7 +27,7 @@ Full design and decisions: [PLAN-vendor-search.md](../../../PLAN-vendor-search.m
    - A typo, plural or translation ("eurppallets", "Euro pallet", "Europaletten"): one short AI question
      without web search, answered only with labels already on the board. A different model, size or
      variant stays a different product ("iPhone 15" ≠ "iPhone").
-   - The existing Product Categories label is reused, so one product keeps one label.
+   - An existing product name is reused, so one product keeps one spelling.
 4. **Step 1, find** (1 AI call, web search): up to 10 German candidates.
 5. **Step 2, check** (1 AI call each, 3 at a time): Impressum, register, VAT, address, contacts. A vendor
    is kept only if it is confirmed to sell the exact product **and** passes the Germany check in code
@@ -42,7 +42,7 @@ Full design and decisions: [PLAN-vendor-search.md](../../../PLAN-vendor-search.m
      (the move runs the board's "item moves to group 2" automation, as for the request row).
 
    Every vendor row is **named after the vendor** (the request row is renamed from the product to the
-   best vendor), with the company in **Legal Company Name**, the product in Product Categories, and Search Source
+   best vendor), with the company in **Legal Company Name**, the product in **Name of Product** (a text column), and Search Source
    **"Research Completed"**. Repeats are recognised by Legal Company Name and website.
 7. Nothing found (or the AI failed after 3 retries, or any error): the request gets **"Manual research"**
    and **stays in group 1** with its product name, empty, for manual research.

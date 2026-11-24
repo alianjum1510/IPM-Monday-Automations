@@ -12,7 +12,7 @@ own automations.
 When vendors are found, the best one is written into the request item itself
 (which is renamed from the product to the vendor); the others are created as new
 items in group 1 and moved to group 2. Every vendor row is named after the vendor, with the product
-in Product Categories and Search Source "Research Completed" - so no empty
+in Name of Product and Search Source "Research Completed" - so no empty
 request row is left on the board. Nothing found: the request keeps the product name.
 """
 import concurrent.futures
@@ -96,8 +96,10 @@ def run(board_id, item_id):
 
 
 def _describe(summary):
-    keys = ('product', 'same_product_labels', 'rounds', 'candidates', 'repeats_skipped', 'rejected', 'checked', 'verified',
-            'created', 'job_functions', 'ai_calls', 'searches', 'seconds', 'filled_request', 'result', 'error')
+    keys = ('product', 'same_product_labels', 'rounds', 'candidates', 'repeats_skipped', 'rejected', 'checked',
+            'verified', 'created', 'product_category', 'product_category_by_ai', 'product_category_new',
+            'catalogues', 'job_functions', 'ai_calls', 'searches', 'seconds', 'filled_request', 'result',
+            'error')
     return ', '.join(f'{key}={summary[key]!r}' for key in keys if key in summary)
 
 
@@ -109,23 +111,84 @@ def _search(board_id, item_id, product):
 
     created, filled = [], False
     job_ids = _job_functions(best, stats)
+    category, picked_by_ai = _product_category(board_id, item_id, product, stats) if best else ([], False)
     if best:
         for index, vendor in enumerate(best):
             name = mapping.item_name(vendor)  # the vendor's company name - the item's name
             values = mapping.column_values(vendor, label, job_ids.get(mapping.contact(vendor)[1]))
+            with_category = {**values, settings.PRODUCT_CATEGORY: {'labels': category}} if category else values
             try:
                 # The best vendor fills the request itself, so no empty request row is left behind.
-                if index == 0 and _fill_request(board_id, item_id, name, values, stats):
+                # The request gets the category only when the AI picked it (else it has its own).
+                if index == 0 and _fill_request(board_id, item_id, name,
+                                                 with_category if picked_by_ai else values, stats):
                     filled = True
+                    _add_catalogue(board_id, item_id, vendor, name, stats, keep_existing=True)
                     continue
-                new_id, dropped = monday.create_vendor(board_id, name, values)
+                new_id, dropped = monday.create_vendor(board_id, name, with_category)
                 created.append(new_id)
+                _add_catalogue(board_id, new_id, vendor, name, stats)
                 if dropped:
                     stats.setdefault('dropped_columns', {})[new_id] = dropped
             except Exception as error:  # noqa: BLE001 - one vendor failing must not lose the others
                 stats['rejected'].append(f'{name}: could not be created ({error})')
                 log.error(f'Vendor "{name}" could not be created: {error}', extra=_ids(board_id, item_id))
     return {**stats, 'filled_request': filled, 'created': created}
+
+
+def _add_catalogue(board_id, item_id, vendor, name, stats, keep_existing=False):
+    """
+    The vendor's catalogue link into Catalogue / Documents. No catalogue: the column
+    stays empty. keep_existing (the request row): only when the column is empty, so a
+    file someone attached by hand is never replaced. A failure is logged - the vendor
+    row itself is already written.
+    """
+    link = mapping.catalogue(vendor)
+    if not link:
+        return
+    try:
+        if keep_existing and monday.has_files(item_id):
+            return
+        monday.add_catalogue(board_id, item_id, link, f'Catalogue - {name}')
+        stats['catalogues'] = stats.get('catalogues', 0) + 1
+    except Exception as error:  # noqa: BLE001
+        log.warning(f'Catalogue link for "{name}" not added ({error})', extra=_ids(board_id, item_id))
+
+
+def _product_category(board_id, item_id, product, stats):
+    """
+    (Product Category labels for every vendor row, picked by the AI?).
+
+    The request's own category (from the purchase requirement) when it has one -
+    read when the vendors are written, not at the start, so a category set during
+    the search is included. Otherwise the AI picks one of the column's options for
+    the product, or names a new broad category when none fits (one short question,
+    no web search). ([], False) when neither works: the vendors are then written
+    without a category.
+    """
+    try:
+        category = monday.request_category(item_id)
+    except Exception as error:  # noqa: BLE001 - unknown: never overwrite what the request may have
+        log.warning(f'Product Category of the request not read ({error}) - vendors written without one')
+        return [], False
+    if category:
+        category = category[:1]  # one category per vendor row, also when the request has several
+        stats['product_category'] = category
+        return category, False
+    try:
+        labels = monday.category_labels(board_id)
+        if not labels:
+            return [], False
+        stats['ai_calls'] += 1
+        picked, new = research.pick_category(product, labels)
+    except Exception as error:  # noqa: BLE001 - the vendors are written without a category
+        log.warning(f'Product Category not picked ({error}) - vendors written without one')
+        return [], False
+    if not picked:
+        return [], False
+    # A new category is created on the board when the vendors are written (create_labels_if_missing).
+    stats.update(product_category=[picked], product_category_by_ai=True, product_category_new=new)
+    return [picked], True
 
 
 def _job_functions(best, stats):
@@ -173,7 +236,7 @@ def _fill_request(board_id, item_id, name, values, stats):
 def select(board_id, product):
     """
     Finds, checks and ranks the vendors for a product - reads the board, writes
-    nothing. Returns (best vendors, stats, the Product Categories label to write).
+    nothing. Returns (best vendors, stats, the product name to write).
     The dry run uses this on its own.
 
     Vendors already on the board for the SAME product - however it was written
@@ -182,7 +245,7 @@ def select(board_id, product):
     """
     stats = {'repeats_skipped': 0, 'rejected': [], 'ai_calls': 0, 'searches': 0}
     board_items = monday.board_vendors(board_id)
-    same_labels = _same_product_labels(product, monday.product_labels(board_id, board_items), stats)
+    same_labels = _same_product_labels(product, monday.product_names(board_items), stats)
     existing_items = [item for item in board_items if any(lbl in same_labels for lbl in item['products'])]
     known = matching.Existing(existing_items)
     stats.update(same_product_labels=same_labels, existing=len(existing_items))
@@ -263,7 +326,7 @@ def _new_candidates(candidates, known, tried, tried_keys, stats):
 
 def _same_product_labels(product, labels, stats):
     """
-    The board's Product Categories labels that are the same product as the request.
+    The product names on the board that are the same product as the request.
 
     Written the same apart from case, spaces and punctuation: decided in code.
     A typo, plural or translation: one short AI question (no web search). If that

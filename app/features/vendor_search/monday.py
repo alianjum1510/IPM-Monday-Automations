@@ -3,12 +3,15 @@ The monday API calls Vendor Search makes. Synchronous (requests): the search
 runs on a background thread, like Company Enrichment.
 
   read_request(item_id)                          the request: name, board, group, Search Source
+  request_category(item_id)                      the request's Product Category labels
+  category_labels(board_id)                      the Product Category column's options
   set_search_source(board_id, item_id, label)    the request's progress
-  board_vendors(board_id)                        every row: name, product labels, website, legal name
-  product_labels(board_id, board_items)          every Product Categories label on the board
+  board_vendors(board_id)                        every row: name, product name, website, legal name
+  product_names(board_items)                     every product name on the board, once each
   fill_request(board_id, item_id, values, name)  the best vendor, into the request item (renamed to the vendor)
   create_vendor(board_id, name, values)          one new vendor item (the 2nd and 3rd): group 1, then moved to 2
   job_function_titles()                          the Job Functions board's titles: {title: item id}
+  add_catalogue(board_id, item_id, link, name)   the vendor's catalogue link in Catalogue / Documents
 """
 import json
 import logging
@@ -88,6 +91,39 @@ def read_request(item_id):
     }
 
 
+def request_category(item_id):
+    """The request's Product Category labels (from the purchase requirement), [] when it has none."""
+    data = graphql(REQUEST_QUERY, {'itemId': [str(item_id)], 'columns': [settings.PRODUCT_CATEGORY]})
+    items = data.get('items') or []
+    text = next((cv.get('text') for item in items for cv in item.get('column_values') or []
+                 if cv.get('id') == settings.PRODUCT_CATEGORY), '')
+    # A dropdown's text is its labels joined by ', ' (no category label has a comma).
+    return [label.strip() for label in str(text or '').split(', ') if label.strip()]
+
+
+CATEGORY_LABELS_QUERY = """
+query ($boardId: [ID!], $columns: [String!]) {
+  boards(ids: $boardId) { columns(ids: $columns) { id settings_str } }
+}
+"""
+
+
+def category_labels(board_id):
+    """The Product Category column's active options, in the column's order ([] when it has none)."""
+    data = graphql(CATEGORY_LABELS_QUERY, {'boardId': [str(board_id)], 'columns': [settings.PRODUCT_CATEGORY]})
+    columns = [column for board in data.get('boards') or [] for column in board.get('columns') or []]
+    try:
+        parsed = json.loads((columns[0] if columns else {}).get('settings_str') or '{}')
+    except ValueError:
+        return []
+    off = set(parsed.get('deactivated_labels') or [])
+    labels = parsed.get('labels') or []
+    if isinstance(labels, dict):  # the older settings format: {"1": "name"}
+        labels = [{'id': int(key), 'name': name} for key, name in labels.items() if str(key).isdigit()]
+    return [str(label['name']) for label in labels
+            if isinstance(label, dict) and label.get('name') and label.get('id') not in off]
+
+
 SET_STATUS = """
 mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
   change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) { id }
@@ -121,15 +157,10 @@ query ($boardId: ID!, $cursor: String, $columns: [String!]) {
 URL_IN_TEXT = re.compile(r'https?://\S+', re.IGNORECASE)
 
 
-def _labels(text):
-    """A dropdown's text is its labels joined by ', '."""
-    return [label.strip() for label in str(text or '').split(',') if label.strip()]
-
-
 def board_vendors(board_id):
-    """Every item with its product labels, website and legal name, following the cursor to the end."""
+    """Every item with its product name, website and legal name, following the cursor to the end."""
     items, cursor = [], None
-    columns = [settings.PRODUCT_CATEGORIES, settings.WEBSITE, settings.LEGAL_NAME]
+    columns = [settings.PRODUCT_NAME, settings.WEBSITE, settings.LEGAL_NAME]
     for _page in range(40):  # bounded: a cursor that never ends cannot spin forever
         data = graphql(ITEMS_QUERY, {'boardId': str(board_id), 'cursor': cursor, 'columns': columns})
         boards = data.get('boards') or []
@@ -138,10 +169,11 @@ def board_vendors(board_id):
             columns = {cv.get('id'): cv.get('text') or '' for cv in item.get('column_values') or []}
             website = columns.get(settings.WEBSITE, '')
             link = URL_IN_TEXT.search(website)
+            product = columns.get(settings.PRODUCT_NAME, '').strip()
             items.append({
                 'id': str(item.get('id')),
                 'name': str(item.get('name') or ''),
-                'products': _labels(columns.get(settings.PRODUCT_CATEGORIES)),
+                'products': [product] if product else [],
                 'website': link.group(0) if link else website,
                 'legal_name': columns.get(settings.LEGAL_NAME, ''),
             })
@@ -158,6 +190,28 @@ query JobTitles($boardId: ID!, $cursor: String) {
   }
 }
 """
+
+
+ADD_CATALOGUE = """
+mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $files: [FileInput!]!) {
+  update_assets_on_item(board_id: $boardId, item_id: $itemId, column_id: $columnId, files: $files) { id }
+}
+"""
+
+
+def has_files(item_id):
+    """True when the item's Catalogue / Documents column already holds a file or link."""
+    data = graphql(REQUEST_QUERY, {'itemId': [str(item_id)], 'columns': [settings.CATALOGUE]})
+    return any((cv.get('text') or '').strip() for item in data.get('items') or []
+               for cv in item.get('column_values') or [] if cv.get('id') == settings.CATALOGUE)
+
+
+def add_catalogue(board_id, item_id, link, name):
+    """The catalogue as a link in Catalogue / Documents (a files column takes links as file type "link")."""
+    graphql(ADD_CATALOGUE, {
+        'boardId': str(board_id), 'itemId': str(item_id), 'columnId': settings.CATALOGUE,
+        'files': [{'fileType': 'link', 'name': name, 'linkToFile': link}],
+    })
 
 
 def job_function_titles():
@@ -177,35 +231,9 @@ def job_function_titles():
     return titles
 
 
-COLUMN_QUERY = """
-query ($boardId: [ID!], $columns: [String!]) {
-  boards(ids: $boardId) { columns(ids: $columns) { id settings_str } }
-}
-"""
-
-
-def _dropdown_labels(settings_str):
-    try:
-        parsed = json.loads(settings_str or '{}')
-    except ValueError:
-        return []
-    labels = parsed.get('labels') or []
-    if isinstance(labels, dict):
-        return [str(name) for name in labels.values()]
-    return [str(label.get('name')) for label in labels if isinstance(label, dict) and label.get('name')]
-
-
-def product_labels(board_id, board_items=()):
-    """Every Product Categories label: those on the items, then the column's own (incl. unused ones)."""
-    known = [label for item in board_items for label in item.get('products') or []]
-    try:
-        data = graphql(COLUMN_QUERY, {'boardId': [str(board_id)], 'columns': [settings.PRODUCT_CATEGORIES]})
-        for board in data.get('boards') or []:
-            for column in board.get('columns') or []:
-                known.extend(_dropdown_labels(column.get('settings_str')))
-    except (MondayError, requests.RequestException) as error:
-        log.warning(f'Product Categories labels not read ({error}) - using the labels on the items')
-    return list(dict.fromkeys(label for label in known if label))
+def product_names(board_items):
+    """Every product name written on the board's items, once each, in board order."""
+    return list(dict.fromkeys(name for item in board_items for name in item.get('products') or [] if name))
 
 
 # ---- writing a vendor: the request itself, or a new item ------------------------------

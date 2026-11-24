@@ -5,8 +5,11 @@ Every value is validated before it is sent. A value that is missing or not
 valid is left out - never guessed, never a placeholder. ("N/A" in an email
 column is what made monday reject Company Enrichment's whole write.)
 """
+import csv
 import datetime
+import io
 import re
+from urllib.parse import urlsplit
 
 from . import settings
 from .matching import _fold, domain_of
@@ -221,7 +224,47 @@ def catalogue(vendor):
         return ''
     if link.rstrip('/') == url(vendor.get('product_evidence_url')).rstrip('/'):
         return ''
+    if not urlsplit(link).path.strip('/'):
+        return ''   # the home page is not a catalogue
     return link
+
+
+def product_overview(vendor, products):
+    """
+    The AI's product list, cleaned: a name is required, a link only on the vendor's
+    own website, each product once, at most settings.MAX_OVERVIEW_PRODUCTS.
+    """
+    site = domain_of(url(vendor.get('website')))
+    rows, seen = [], set()
+    for entry in products:
+        name = text(entry.get('name'), 150)
+        if not name or name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        link = url(entry.get('url'))
+        host = domain_of(link)
+        if not site or not (host == site or host.endswith('.' + site)):
+            link = ''
+        rows.append({'name': name, 'category': text(entry.get('category'), 80), 'url': link})
+        if len(rows) == settings.MAX_OVERVIEW_PRODUCTS:
+            break
+    return rows
+
+
+def product_overview_csv(rows):
+    """The product overview as a CSV file (UTF-8 with BOM, so Excel shows umlauts right)."""
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(['Product', 'Category', 'Link'])
+    for row in rows:
+        writer.writerow([row['name'], row['category'], row['url']])
+    return ('\ufeff' + out.getvalue()).encode('utf-8')
+
+
+def file_name(text_):
+    """A file name from a vendor name: no characters a file system or monday would refuse."""
+    cleaned = re.sub(r'[\\/:*?"<>|\n\r\t]+', ' ', str(text_ or ''))
+    return re.sub(r'\s+', ' ', cleaned).strip()[:120] or 'vendor'
 
 
 def item_name(vendor):

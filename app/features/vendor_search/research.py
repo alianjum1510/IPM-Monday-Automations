@@ -6,6 +6,7 @@ features never depend on each other.
   match_product(product, labels) -> [label, ...]  is it a product already on the board? (no web search)
   find(product, existing)  -> [candidate, ...]   step 1
   check(product, candidate) -> vendor dict        step 2
+  list_products(company, website, product)       no catalogue: the vendor's products
 
 A rate limit, a server error, a timeout or a dropped connection is retried
 (settings.RETRY_DELAYS_SECONDS). Anything else, or the last retry failing,
@@ -164,6 +165,20 @@ def pick_category(product, labels):
 
 def _category_key(text):
     return re.sub(r'[^a-z0-9äöüß]+', ' ', str(text or '').casefold()).strip()
+
+
+def list_products(company, website, product, listed=()):
+    """
+    No catalogue: the vendor's products from its website, as the AI lists them - a
+    list of dicts, raw (mapping.product_overview cleans them). `listed`: products a
+    first answer already gave, for a second question that asks for others.
+    Returns (products, searches).
+    """
+    text, searches = ask(prompts.products_prompt(company, website, product, listed), 'product overview')
+    found = parse_json(text).get('products')
+    if not isinstance(found, list):
+        raise ResearchError('the answer has no "products" list')
+    return [entry for entry in found if isinstance(entry, dict)], searches
 
 
 def find(product, existing):

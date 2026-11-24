@@ -16,6 +16,7 @@ product_page_problem() returns why a vendor fails, or None.
 """
 import html
 import re
+from urllib.parse import urlsplit
 
 import requests
 
@@ -40,6 +41,30 @@ def fetch(url):
     finally:
         res.close()
     return res.status_code, body.decode(res.encoding or 'utf-8', errors='replace')
+
+
+def open_link(url):
+    """(HTTP status, the address it ended on after redirects) - without reading the body (a PDF can be large)."""
+    res = requests.get(url, headers=HEADERS, timeout=TIMEOUT_SECONDS, allow_redirects=True, stream=True)
+    res.close()
+    return res.status_code, res.url
+
+
+def catalogue_exists(url):
+    """
+    The catalogue link really opens. Strict, unlike the product page check: an
+    invented link (the AI wrote ".../produktkatalog.pdf" for three vendors, all 404)
+    must never reach the board. 404, blocked, timeout, an unknown host, or a
+    redirect to the home page - all count as no catalogue.
+    """
+    try:
+        status, final = open_link(url)
+    except requests.RequestException:
+        return False
+    if status >= 400:
+        return False
+    asked, landed = urlsplit(url).path.strip('/'), urlsplit(str(final or url)).path.strip('/')
+    return not (asked and not landed)
 
 
 def site_name(url):

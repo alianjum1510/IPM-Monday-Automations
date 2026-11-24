@@ -71,6 +71,32 @@ Answer with JSON only:
 {{"category": "<category from our list, or a new broad category>"}}"""
 
 
+def products_prompt(company, website, product, listed=(), minimum=settings.MIN_OVERVIEW_PRODUCTS,
+                    limit=settings.MAX_OVERVIEW_PRODUCTS):
+    already = ''
+    if listed:
+        names = '\n'.join(f'- {json.dumps(name, ensure_ascii=False)}' for name in listed)
+        already = f"""
+These products are already listed - do not repeat them, list OTHER products of this company:
+{names}
+"""
+    return f"""List the products this company sells, from its own website. Use web search.
+
+COMPANY: {json.dumps(company, ensure_ascii=False)}
+WEBSITE: {website}
+{already}
+Rules:
+- Only products shown on the company's own website ({website}). Never invent a product.
+- At least {minimum} and up to {limit} products. First those like "{product}" and closely related ones, then its other product lines and categories. Look through the shop, product categories and catalogue pages to find enough.
+- Each product once: different sizes or colours of the same product count as one.
+- name: the product name as the website writes it. category: the product group the website puts it in.
+  url: the page on the company's website that shows it, or null.
+- If the website shows fewer products, list all it shows. If it shows none, answer with an empty list.
+
+Answer with JSON only:
+{{"products": [{{"name": "...", "category": "...", "url": "https://... or null"}}]}}"""
+
+
 def find_prompt(product, existing, limit=settings.MAX_CANDIDATES):
     area = settings.SEARCH_AREA
     return f"""You are a procurement researcher. Find companies based in {area} that sell this exact product:

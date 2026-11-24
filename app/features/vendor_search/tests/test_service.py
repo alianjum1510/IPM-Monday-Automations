@@ -211,7 +211,8 @@ def test_never_more_than_three_vendors(board, ai):
     assert len(names(board)) == 3
     assert len(board.fills) == 1 and len(board.created) == 2
     assert len(ai.checks) == 3, 'only the top 3 are deep-checked when all pass'
-    assert summary['ai_calls'] == 5, 'find + 3 checks + 1 category pick (the request has no category)'
+    assert summary['ai_calls'] == 8, \
+        'find + 3 checks + 1 category pick (no category) + 3 product lists (no catalogue)'
 
 
 def test_fewer_good_vendors_means_fewer_items_never_weak_ones(board, ai):
@@ -815,3 +816,168 @@ def test_a_failed_catalogue_link_does_not_stop_the_vendors(board, ai):
 
     assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones']
     assert summary['result'] == 'Research Completed'
+
+
+# ---- no catalogue: the AI's product overview as a CSV in Catalogue / Documents ----------------
+
+def products_of(name, count=30):
+    site = name.lower().replace(' ', '-')
+    return [{'name': f'Produkt {n}', 'category': 'Reiniger', 'url': f'https://www.{site}.de/p/{n}'} for n in range(count)]
+
+
+def test_without_a_catalogue_the_products_are_attached_as_a_csv(board, ai):
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile'), 'Beta Phones': products_of('Beta Phones')}
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    new_id = board.created[0]['id']
+    assert [(item_id, file_name) for item_id, file_name, _ in board.uploads] == [
+        (REQUEST_ID, 'Product overview (AI) - Alpha Mobile.csv'),
+        (new_id, 'Product overview (AI) - Beta Phones.csv'),
+    ]
+    rows = board.uploads[0][2].decode('utf-8-sig').splitlines()
+    assert rows[0] == 'Product,Category,Link'
+    assert rows[1] == 'Produkt 0,Reiniger,https://www.alpha-mobile.de/p/0'
+    assert len(rows) == 31, 'the header and 30 products'
+    assert board.catalogues == [], 'no catalogue link when there is no catalogue'
+    assert summary['product_overviews'] == 2
+    assert len(ai.product_questions) == 2
+
+
+def test_a_vendor_with_a_catalogue_gets_the_link_and_no_product_list(board, ai):
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=catalogue_of('Alpha Mobile'))}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert [files[0]['linkToFile'] for _id, files in board.catalogues] == [catalogue_of('Alpha Mobile')]
+    assert board.uploads == [] and ai.product_questions == []
+
+
+def test_neither_a_catalogue_nor_products_leaves_the_column_empty(board, ai):
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]   # the AI lists no products
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert board.uploads == [] and board.catalogues == []
+
+
+def test_a_failed_product_list_or_upload_does_not_stop_the_vendors(board, ai):
+    ai.products_error = requests.Timeout('slow')
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+    summary = service.run(BOARD, REQUEST_ID)
+    assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones'] and board.uploads == []
+    assert summary['result'] == 'Research Completed'
+
+
+def test_a_failed_upload_does_not_stop_the_vendors(board, ai):
+    board.upload_error = requests.ConnectionError('monday down for a moment')
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile'), 'Beta Phones': products_of('Beta Phones')}
+    ai.candidates = [candidate('Alpha Mobile'), candidate('Beta Phones')]
+    summary = service.run(BOARD, REQUEST_ID)
+    assert sorted(names(board)) == ['Alpha Mobile', 'Beta Phones']
+    assert summary['result'] == 'Research Completed'
+
+
+def test_the_product_overview_never_replaces_a_file_on_the_request(board, ai):
+    board.items[REQUEST_ID]['files'] = ['purchase-spec.pdf']
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile')}
+    ai.candidates = [candidate('Alpha Mobile')]
+    service.run(BOARD, REQUEST_ID)
+    assert board.uploads == []
+
+
+# ---- a catalogue link is opened before it is written --------------------------------------
+
+def test_an_invented_catalogue_link_is_never_written_the_products_are_attached_instead(board, ai, product_pages):
+    """sticky paper: all three catalogue links the AI gave were 404."""
+    dead = catalogue_of('Alpha Mobile')
+    product_pages['urls'][dead] = (404, '')
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=dead)}
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile')}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert board.catalogues == [], 'the dead link is not written'
+    assert [file_name for _id, file_name, _ in board.uploads] == ['Product overview (AI) - Alpha Mobile.csv']
+    assert summary['dead_catalogues'] == [dead]
+
+
+@pytest.mark.parametrize('answer', [(403, ''), (500, ''), requests.Timeout('slow'), requests.ConnectionError('no host'),
+                                    (200, '', 'https://www.alpha-mobile.de/')])
+def test_a_catalogue_link_that_cannot_be_opened_or_goes_home_counts_as_none(board, ai, product_pages, answer):
+    link = catalogue_of('Alpha Mobile')
+    product_pages['urls'][link] = answer
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=link)}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert board.catalogues == []
+
+
+def test_a_catalogue_link_that_opens_is_written(board, ai, product_pages):
+    link = catalogue_of('Alpha Mobile')
+    product_pages['urls'][link] = (200, '', 'https://www.alpha-mobile.de/downloads/katalog-2026.pdf')
+    ai.vendors = {'Alpha Mobile': vendor('Alpha Mobile', catalogue_url=link)}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert [files[0]['linkToFile'] for _id, files in board.catalogues] == [link]
+    assert link in product_pages['opened']
+
+
+
+# ---- the product overview has at least 30 products -----------------------------------------
+
+def test_fewer_than_30_products_asks_once_more_and_attaches_when_it_reaches_30(board, ai):
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile', 20)}
+    ai.more_products = {'Alpha Mobile': [{'name': f'Weiteres {n}', 'category': 'Zubehör', 'url': None}
+                                         for n in range(15)]}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    [first, second] = ai.product_questions
+    assert 'already listed' not in first
+    assert 'already listed' in second and '"Produkt 0"' in second, 'the second question names what it has'
+    [(_id, _name, content)] = board.uploads
+    assert len(content.decode('utf-8-sig').splitlines()) == 1 + 35
+
+
+def test_a_vendor_with_fewer_than_30_products_gets_all_it_has(board, ai):
+    """Asked twice and still 12: the vendor has no more, so the 12 are attached."""
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile', 12)}
+    ai.more_products = {'Alpha Mobile': products_of('Alpha Mobile', 12)}   # the same ones again: still 12
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    summary = service.run(BOARD, REQUEST_ID)
+
+    assert len(ai.product_questions) == 2, 'asked once more before settling for fewer'
+    [(_id, _name, content)] = board.uploads
+    assert len(content.decode('utf-8-sig').splitlines()) == 1 + 12
+    assert summary['short_overviews'] == {'Alpha Mobile': 12}
+
+
+def test_30_or_more_at_once_needs_no_second_question(board, ai):
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile', 45)}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    assert len(ai.product_questions) == 1
+    [(_id, _name, content)] = board.uploads
+    assert len(content.decode('utf-8-sig').splitlines()) == 1 + 45
+
+
+def test_never_more_than_50(board, ai):
+    ai.product_lists = {'Alpha Mobile': products_of('Alpha Mobile', 80)}
+    ai.candidates = [candidate('Alpha Mobile')]
+
+    service.run(BOARD, REQUEST_ID)
+
+    [(_id, _name, content)] = board.uploads
+    assert len(content.decode('utf-8-sig').splitlines()) == 1 + 50

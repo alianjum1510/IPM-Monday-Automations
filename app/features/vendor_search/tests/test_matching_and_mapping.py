@@ -266,7 +266,31 @@ def test_an_address_without_street_number_or_postal_code_is_rejected(address, pr
     ('https://www.other.de/a-katalog.pdf', ''),                          # not the vendor's own website
     ('https://www.a.de/products/iphone', ''),                            # the product page is not a catalogue
     ('https://www.a.de/products/iphone/', ''),
+    ('https://www.a.de/', ''), ('https://www.a.de', ''),                # the home page is not a catalogue
     (None, ''), ('N/A', ''),
 ])
 def test_only_the_vendors_own_catalogue_is_used_never_the_product_page(link, expected):
     assert mapping.catalogue(vendor('A', catalogue_url=link)) == expected
+
+
+def test_the_product_overview_keeps_named_products_once_with_own_site_links_and_at_most_50():
+    a = vendor('A', website='https://www.a.de')
+    products = ([{'name': 'Glasreiniger', 'category': 'Reiniger', 'url': 'https://www.a.de/glas'},
+                 {'name': 'glasreiniger', 'category': 'Reiniger', 'url': 'https://www.a.de/glas'},   # twice
+                 {'name': '', 'category': 'x', 'url': 'https://www.a.de/x'},                           # no name
+                 {'name': 'Fremd', 'category': None, 'url': 'https://www.amazon.de/fremd'}]            # other site
+                + [{'name': f'P{n}', 'url': None} for n in range(80)])
+    rows = mapping.product_overview(a, products)
+    assert rows[0] == {'name': 'Glasreiniger', 'category': 'Reiniger', 'url': 'https://www.a.de/glas'}
+    assert rows[1] == {'name': 'Fremd', 'category': '', 'url': ''}, 'a link to another site is dropped'
+    assert len(rows) == settings.MAX_OVERVIEW_PRODUCTS
+
+
+def test_the_csv_has_a_bom_for_excel_and_keeps_umlauts_and_commas():
+    content = mapping.product_overview_csv([{'name': 'Größe 10, blau', 'category': 'Ä', 'url': ''}])
+    assert content.startswith('﻿'.encode('utf-8'))
+    assert content.decode('utf-8-sig').splitlines() == ['Product,Category,Link', '"Größe 10, blau",Ä,']
+
+
+def test_a_file_name_has_no_characters_monday_would_refuse():
+    assert mapping.file_name('A/B: "C" GmbH') == 'A B C GmbH'

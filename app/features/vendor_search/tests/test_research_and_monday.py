@@ -326,3 +326,27 @@ def test_the_category_prompt_allows_a_new_category_only_when_none_fits():
     assert '"Basketball"' in prompt and '- "Packaging"' in prompt
     assert 'Only when none of our categories fits, name a new one' in prompt
     assert 'Never the product name itself' in prompt and 'Do not use "Other"' in prompt
+
+
+def test_the_product_overview_is_uploaded_as_a_multipart_file(monkeypatch):
+    sent = {}
+
+    def fake_post(url, data, files, headers, timeout):
+        sent.update(url=url, data=data, files=files, headers=headers)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b'{"data": {"add_file_to_column": {"id": "1"}}}'
+        return response
+
+    monkeypatch.setattr(monday.requests, 'post', fake_post)
+    monday.upload_file(7, 'Product overview (AI) - A.csv', b'Product,Category,Link\n')
+    assert sent['url'] == 'https://api.monday.com/v2/file'
+    assert 'add_file_to_column' in sent['data']['query']
+    assert json.loads(sent['data']['variables']) == {'itemId': '7', 'columnId': settings.CATALOGUE}
+    assert sent['files']['variables[file]'] == ('Product overview (AI) - A.csv', b'Product,Category,Link\n', 'text/csv')
+
+
+def test_the_product_list_prompt_names_the_site_the_limit_and_forbids_inventing():
+    prompt = prompts.products_prompt('A GmbH', 'https://www.a.de', 'Glass cleaner')
+    assert 'WEBSITE: https://www.a.de' in prompt and 'At least 30 and up to 50 products' in prompt
+    assert 'Never invent a product' in prompt and '"Glass cleaner"' in prompt

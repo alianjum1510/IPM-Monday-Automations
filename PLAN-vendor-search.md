@@ -391,8 +391,22 @@ promote the previous app version. No other feature depends on this one.
   its website, `catalogue_url`). It is added to **Catalogue / Documents** (`file_mm947aza`,
   `settings.CATALOGUE`) as a link named "Catalogue - <vendor>" with `update_assets_on_item`
   (file type `link`; a files column takes no value through `change_multiple_column_values`).
-- **Never the product page:** no catalogue -> the column stays empty. `mapping.catalogue` drops a link on
-  another website and a link equal to the product page.
+- **No catalogue -> product overview:** the AI lists up to `MAX_OVERVIEW_PRODUCTS` (50) products from the
+  vendor's own website (`research.list_products`, one web-search call per vendor without a catalogue, all
+  at the same time). `mapping.product_overview` keeps named products once, drops links to other sites;
+  the list is uploaded as "Product overview (AI) - <vendor>.csv" (Product, Category, Link; UTF-8 with BOM
+  for Excel) with `add_file_to_column` on `https://api.monday.com/v2/file` (`monday.upload_file`).
+- **Never the product page:** neither a catalogue nor a product list -> the column stays empty.
+  `mapping.catalogue` drops a link on another website and a link equal to the product page.
 - **The request row:** the link is added only when its Catalogue / Documents column is empty, so a file
   attached by hand is never replaced. A failed link is logged; the vendor row is already written.
-- **Cost:** no extra AI call (part of the deep check); one monday call per row with a catalogue.
+- **Cost:** the catalogue link needs no extra AI call (part of the deep check). A product overview is one
+  extra web-search AI call per vendor without a catalogue (up to 3 per request, in parallel).
+- **Every catalogue link is opened first** (`pages.catalogue_exists`, all at the same time). The first live
+  run ("sticky paper") wrote three catalogue links the AI had invented - all 404. Now 404, blocked,
+  timeout, an unknown host or a redirect to the home page all count as "no catalogue" (the vendor gets
+  the product overview instead). The home page itself is never taken as a catalogue.
+- **At least 30 products** (`MIN_OVERVIEW_PRODUCTS`), up to 50: the AI is asked for 30-50. Fewer than 30
+  after cleaning: one more question for *other* products of the same website (the ones listed are named,
+  so they are not repeated). Still fewer than 30: the vendor has no more, so the products found are
+  attached (logged as `short_overviews`) - never padded with invented products. None at all: empty.

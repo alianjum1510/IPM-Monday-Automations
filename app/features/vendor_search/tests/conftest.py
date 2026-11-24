@@ -95,6 +95,8 @@ class FakeBoard:
         self.job_titles_error = None
         self.category_error = None  # raised when the request's Product Category is read
         self.catalogues = []        # (item_id, files) added to Catalogue / Documents
+        self.uploads = []           # (item_id, file name, content) uploaded to Catalogue / Documents
+        self.upload_error = None
         self.catalogue_error = None
         # The Product Category column's options, as on the board (Other is one of them).
         self.category_options = ['Cleaning & Hygiene', 'Packaging', 'Office Supplies', 'Other']
@@ -195,6 +197,13 @@ class FakeBoard:
                  legal_name=values.get(settings.LEGAL_NAME, ''))
         return {'create_item': {'id': str(item_id)}}
 
+    def upload_file(self, item_id, file_name, content, content_type='text/csv'):
+        if self.upload_error:
+            raise self.upload_error
+        self.uploads.append((int(item_id), file_name, content))
+        self.items[int(item_id)]['files'] = [file_name]
+        return {'add_file_to_column': {'id': '1'}}
+
     @property
     def request_statuses(self):
         return [label for item_id, label in self.status_writes if item_id == REQUEST_ID]
@@ -204,6 +213,7 @@ FIND = 'You are a procurement researcher'
 MATCH = 'A buyer asked for this product'
 JOB = 'Match each job title'
 CATEGORY = 'Pick the one product category'
+PRODUCTS = 'List the products this company sells'
 
 
 class FakeAI:
@@ -221,6 +231,9 @@ class FakeAI:
         self.job_matches = {}       # role -> title the AI answers
         self.category = 'Cleaning & Hygiene'  # the category the AI picks
         self.category_error = None
+        self.product_lists = {}     # company name -> the products the AI lists (none by default)
+        self.more_products = {}     # company name -> what a second question ("other products") gives
+        self.products_error = None
         self.find_error = None
         self.prompts = []
         self.web_search = []        # whether each call asked for web search
@@ -234,6 +247,13 @@ class FakeAI:
             return self._answer({'matches': self.same_products})
         if prompt.startswith(JOB):
             return self._answer({'matches': self.job_matches})
+        if prompt.startswith(PRODUCTS):
+            if self.products_error:
+                raise self.products_error
+            company = json.loads(re.search(r'COMPANY: (".*")', prompt).group(1))
+            if 'already listed' in prompt:
+                return self._answer({'products': self.more_products.get(company, [])})
+            return self._answer({'products': self.product_lists.get(company, [])})
         if prompt.startswith(CATEGORY):
             if self.category_error:
                 raise self.category_error
@@ -268,7 +288,11 @@ class FakeAI:
 
     @property
     def checks(self):
-        return [p for p in self.prompts if not p.startswith((FIND, MATCH, JOB, CATEGORY))]
+        return [p for p in self.prompts if not p.startswith((FIND, MATCH, JOB, CATEGORY, PRODUCTS))]
+
+    @property
+    def product_questions(self):
+        return [p for p in self.prompts if p.startswith(PRODUCTS)]
 
     @property
     def category_questions(self):
@@ -294,7 +318,15 @@ def product_pages(monkeypatch):
             raise answer
         return answer
 
+    def open_link(url):
+        fake['opened'].append(url)
+        answer = fake['urls'].get(url, fake['default'])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer[0], (answer[2] if len(answer) > 2 else url)
+
     monkeypatch.setattr(pages, 'fetch', fetch)
+    monkeypatch.setattr(pages, 'open_link', open_link)
     return fake
 
 
@@ -302,6 +334,7 @@ def product_pages(monkeypatch):
 def board(monkeypatch):
     fake = FakeBoard()
     monkeypatch.setattr(monday, 'graphql', fake.graphql)
+    monkeypatch.setattr(monday, 'upload_file', fake.upload_file)
     return fake
 
 

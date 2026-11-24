@@ -313,3 +313,42 @@ def test_boards_without_a_flag_column_never_get_it(board):
     post(board, FILL)
 
     assert all(FLAG not in m for m in board.mutations)
+
+
+# ---------- Dev Sandbox board: its Land text column was deleted ----------
+
+DELETED_LAND = "text_mkywm44h"  # Land (text), deleted from board 5099246179 on 2026-11-24
+
+
+@pytest.mark.parametrize("path", [FILL, VALIDATE])
+def test_the_deleted_land_column_is_never_written_on_the_dev_board(board, path):
+    """monday rejected the whole update ("This column ID doesn't exist for the board")."""
+    board.new_item({"text_mkw9pw3m": FULL, "text_mkw9v8an": "Borsigstraße 15", "text_mkxqtbr0": "51381"},
+                   board_id=SANDBOX)
+    assert post(board, path).status_code == 200
+
+    assert board.mutations and all(DELETED_LAND not in m for m in board.mutations)
+    assert board.text(FLAG) == "Germany"
+    assert board.text("color_mm0851fj") == "Done"
+
+
+def test_validate_searches_in_the_country_of_the_flag_column(board):
+    board.new_item({"text_mkw9v8an": "Borsigstraße 15", "text_mkxqtbr0": "51381", FLAG: "Germany"},
+                   board_id=SANDBOX)
+    post(board, VALIDATE)
+
+    assert board.here_queries[0]["in"] == "countryCode:DEU"
+
+
+def test_validate_searches_worldwide_without_any_country(board):
+    board.new_item({"text_mkw9v8an": "Borsigstraße 15", "text_mkxqtbr0": "51381"}, board_id=SANDBOX)
+    post(board, VALIDATE)
+
+    assert board.here_queries[0]["in"] is None
+
+
+@pytest.mark.parametrize("country, alpha3", [("Pakistan", "PAK"), ("PK", "PAK"), ("germany", "DEU"),
+                                             ("", ""), ("Atlantis", "")])
+def test_a_monday_country_name_or_code_becomes_heres_code(country, alpha3):
+    from app.features.address_validator.countries import alpha3_for
+    assert alpha3_for(country) == alpha3

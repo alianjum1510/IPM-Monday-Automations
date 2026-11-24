@@ -263,3 +263,13 @@ def country_value(alpha3):
     """monday's country column value for a HERE countryCode, or "" when unknown."""
     value = ALPHA3.get(str(alpha3 or "").strip().upper())
     return dict(value) if value else ""
+
+
+_BY_ALPHA2 = {value["countryCode"]: alpha3 for alpha3, value in ALPHA3.items()}
+_BY_NAME = {value["countryName"].casefold(): alpha3 for alpha3, value in ALPHA3.items()}
+
+
+def alpha3_for(country):
+    """HERE's alpha-3 code for a monday country column's name ("Pakistan") or code ("PK"), or ""."""
+    key = str(country or "").strip()
+    return _BY_ALPHA2.get(key.upper()) or _BY_NAME.get(key.casefold(), "")

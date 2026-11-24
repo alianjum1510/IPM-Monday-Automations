@@ -77,6 +77,13 @@ run writes nothing and shows only in the Logs.
 HERE's country as monday's country value, `{"countryCode": "DE", "countryName": "Germany"}`
 (`countries.py` maps HERE's alpha-3 code). Diff-only, like Land; an unknown code is not written.
 
+**Dev board `5099246179` has no Land text column** since 2026-11-24 (`text_mkywm44h` was deleted;
+writing it made monday reject the whole update with "This column ID doesn't exist for the board").
+Its `country` is `None` in `boards.py`, so the country goes to the flag column only.
+
+**Search country** (Validate mode): HERE searches in the country from the Land text column, else
+from the flag column (`alpha3_for`, e.g. "Pakistan" → `PAK`), else worldwide.
+
 **Adresszeile 2** (boards `5099246179` and `5094089644`, `text_mkw9et45`): both modes write HERE's `district`
 (the Ortsteil, e.g. `Wiesdorf`) there, but only while the column is empty — a hand-typed `c/o …`
 or `2. Etage` is never overwritten. HERE has no real "line 2"; when it has no Ortsteil, nothing

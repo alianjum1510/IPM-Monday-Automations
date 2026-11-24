@@ -19,6 +19,7 @@ import time
 
 from . import here
 from .boards import REQUIRED_FIELDS, address_trigger_ids, field_trigger_ids, get_board_config
+from .countries import alpha3_for
 from .monday import get_column_value, get_item_data, make_location_value, update_item
 from .payload import extract_changed_column_ids, extract_ids_from_payload, normalize_action_payload, normalize_id
 
@@ -210,6 +211,19 @@ def process_from_address(item, board_id, board, token):
     return finish(item, board_id, board, addr, ADDRESS_MODE_FIELDS, "address", token)
 
 
+def search_country(item, cols):
+    """
+    The country HERE searches in (alpha-3), from the row as it stands: the Land text
+    column, else the country flag column (a moved lead often has only the flag, and a
+    board may have no Land text column). "" searches worldwide.
+    """
+    values = item["column_values"]
+    cc = here.country_code_for(get_column_value(values, cols.get("country")))
+    if not cc and cols.get("country_flag"):
+        cc = alpha3_for(get_column_value(values, cols["country_flag"]))
+    return cc
+
+
 def process_from_fields(item, board_id, board, token):
     """Mode "fields": Address Line 1 + Postcode → refresh everything else."""
     cols = board["columns"]
@@ -219,8 +233,7 @@ def process_from_fields(item, board_id, board, token):
     if not address_line_1 or not postcode:
         return mark_stuck(item, board_id, board, "Address Line 1 or Postcode is empty", "fields", token)
 
-    # The current Land column (filled by an earlier run) narrows the search to that country.
-    cc = here.country_code_for(get_column_value(item["column_values"], cols["country"]))
+    cc = search_country(item, cols)
     query = f"{address_line_1}, {postcode}"
     in_cc = f" in {cc}" if cc else ""
     log.info(f"Item {item['id']} [fields]: HERE query \"{query}\"{in_cc}",

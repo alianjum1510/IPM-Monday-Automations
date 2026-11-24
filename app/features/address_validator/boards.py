@@ -70,7 +70,9 @@ def boards():
                 "city":           "text_mkyw1a7a",    # ✅Ort
                 "district":       "text_mkx4mpvc",    # ✅Landkreis / Kreis (legal)
                 "state":          "text_mkx5m5c3",    # ✅Bundesland (legal)
-                "country":        "text_mkywm44h",    # Land (text)
+                # Land (text, text_mkywm44h) was deleted from this board on 2026-11-24: writing it
+                # made monday reject the whole update. The country goes to the flag column only.
+                "country":        None,
                 "country_flag":   "country_mm2ghytw", # ✅Land (country column, flag)
                 "latitude":       "numeric_mkw9x7h5", # ✅Breitengrad (legal)
                 "longitude":      "numeric_mkw94cck", # ✅Längengrad (legal)

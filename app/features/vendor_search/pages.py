@@ -16,7 +16,7 @@ product_page_problem() returns why a vendor fails, or None.
 """
 import html
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -65,6 +65,49 @@ def catalogue_exists(url):
         return False
     asked, landed = urlsplit(url).path.strip('/'), urlsplit(str(final or url)).path.strip('/')
     return not (asked and not landed)
+
+
+# Words that name a catalogue in a link's address or text (folded: umlauts become plain letters).
+CATALOGUE_WORDS = ('katalog', 'catalog', 'broschure', 'brochure', 'prospekt')
+LINK = re.compile(r'<a\b[^>]*?href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+MAX_CATALOGUE_LINKS = 5
+
+
+def catalogue_links(website, markup):
+    """
+    The catalogue links on a page of the vendor's website, best first: a link whose
+    address or text names a catalogue ("Gesamtkatalog 2026", "Broschüre", ...), on the
+    vendor's own site, PDFs before pages. Not opened here.
+    """
+    site = site_name(website)
+    found = []
+    for href, label in LINK.findall(markup or ''):
+        if href.startswith(('mailto:', 'tel:', 'javascript:', '#')):
+            continue
+        link = urljoin(website, html.unescape(href.strip()))
+        if not link.startswith(('http://', 'https://')) or site_name(link) != site:
+            continue
+        words = _fold(html.unescape(link + ' ' + re.sub(r'<[^>]+>', ' ', label)))
+        if any(word in words for word in CATALOGUE_WORDS) and link not in found:
+            found.append(link)
+    return sorted(found, key=lambda link: not urlsplit(link).path.lower().endswith('.pdf'))
+
+
+def find_catalogue(website):
+    """
+    A catalogue linked on the vendor's home page that really opens, or None. Free: one
+    page load, no AI - it found Sitwell's "Gesamtkatalog 2026/27" PDF that the AI missed.
+    """
+    try:
+        status, markup = fetch(website)
+    except requests.RequestException:
+        return None
+    if status >= 400:
+        return None
+    for link in catalogue_links(website, markup)[:MAX_CATALOGUE_LINKS]:
+        if catalogue_exists(link):
+            return link
+    return None
 
 
 def site_name(url):

@@ -56,15 +56,8 @@ CERTIFICATIONS = 'dropdown_mm96f573'
 # "Job Functions and Departments" (connect boards): the contact's job title is
 # linked to the matching item on that board; the Department mirror then fills itself.
 # "Catalogue / Documents" (files column): the vendor's own catalogue, added as a link.
-# Never filled with the product page.
+# No working catalogue: left empty - never filled with the product page.
 CATALOGUE = 'file_mm947aza'
-# No catalogue: the AI lists the vendor's products from its website (at most this many) and a
-# "Product overview (AI) - <vendor>.csv" file is attached instead.
-MAX_OVERVIEW_PRODUCTS = 50
-# The AI is asked for at least this many. Fewer: it is asked once more for other products.
-# Still fewer (the vendor has no more): the products found are attached - never padded
-# with invented ones.
-MIN_OVERVIEW_PRODUCTS = 30
 JOB_FUNCTIONS = 'board_relation_mm9685qm'
 JOB_FUNCTIONS_BOARD = 5108003087
 

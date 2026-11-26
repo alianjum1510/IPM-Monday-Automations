@@ -98,8 +98,8 @@ def run(board_id, item_id):
 def _describe(summary):
     keys = ('product', 'same_product_labels', 'rounds', 'candidates', 'repeats_skipped', 'rejected', 'checked',
             'verified', 'created', 'product_category', 'product_category_by_ai', 'product_category_new',
-            'catalogues', 'dead_catalogues', 'product_overviews', 'short_overviews', 'job_functions', 'ai_calls',
-            'searches', 'seconds', 'filled_request', 'result', 'error')
+            'catalogues', 'dead_catalogues', 'catalogues_from_website',
+            'job_functions', 'ai_calls', 'searches', 'seconds', 'filled_request', 'result', 'error')
     return ', '.join(f'{key}={summary[key]!r}' for key in keys if key in summary)
 
 
@@ -112,8 +112,7 @@ def _search(board_id, item_id, product):
     created, filled = [], False
     job_ids = _job_functions(best, stats)
     category, picked_by_ai = _product_category(board_id, item_id, product, stats) if best else ([], False)
-    _drop_dead_catalogues(best, stats)  # an invented catalogue link is never written
-    overviews = _product_overviews(best, product, stats)  # {vendor index: products} - no catalogue
+    _resolve_catalogues(best, stats)  # a working catalogue link, or none - never an invented one
     if best:
         for index, vendor in enumerate(best):
             name = mapping.item_name(vendor)  # the vendor's company name - the item's name
@@ -125,12 +124,11 @@ def _search(board_id, item_id, product):
                 if index == 0 and _fill_request(board_id, item_id, name,
                                                  with_category if picked_by_ai else values, stats):
                     filled = True
-                    _add_catalogue(board_id, item_id, vendor, name, overviews.get(index), stats,
-                                   keep_existing=True)
+                    _add_catalogue(board_id, item_id, vendor, name, stats, keep_existing=True)
                     continue
                 new_id, dropped = monday.create_vendor(board_id, name, with_category)
                 created.append(new_id)
-                _add_catalogue(board_id, new_id, vendor, name, overviews.get(index), stats)
+                _add_catalogue(board_id, new_id, vendor, name, stats)
                 if dropped:
                     stats.setdefault('dropped_columns', {})[new_id] = dropped
             except Exception as error:  # noqa: BLE001 - one vendor failing must not lose the others
@@ -139,94 +137,53 @@ def _search(board_id, item_id, product):
     return {**stats, 'filled_request': filled, 'created': created}
 
 
-def _add_catalogue(board_id, item_id, vendor, name, overview, stats, keep_existing=False):
+def _add_catalogue(board_id, item_id, vendor, name, stats, keep_existing=False):
     """
-    Catalogue / Documents: the vendor's own catalogue as a link; without one, the
-    AI's product overview as a CSV file; neither - the column stays empty (never the
-    product page). keep_existing (the request row): only when the column is empty,
-    so a file someone attached by hand is never replaced. A failure is logged - the
-    vendor row itself is already written.
+    Catalogue / Documents: the vendor's own catalogue as a link. No working
+    catalogue: the column stays empty (never the product page). keep_existing (the
+    request row): only when the column is empty, so a file someone attached by hand
+    is never replaced. A failure is logged - the vendor row itself is already written.
     """
     link = mapping.catalogue(vendor)
-    if not link and not overview:
+    if not link:
         return
     try:
         if keep_existing and monday.has_files(item_id):
             return
-        if link:
-            monday.add_catalogue(board_id, item_id, link, f'Catalogue - {name}')
-            stats['catalogues'] = stats.get('catalogues', 0) + 1
-        else:
-            monday.upload_file(item_id, f'Product overview (AI) - {mapping.file_name(name)}.csv',
-                               mapping.product_overview_csv(overview))
-            stats['product_overviews'] = stats.get('product_overviews', 0) + 1
+        monday.add_catalogue(board_id, item_id, link, f'Catalogue - {name}')
+        stats['catalogues'] = stats.get('catalogues', 0) + 1
     except Exception as error:  # noqa: BLE001
-        log.warning(f'Catalogue / Documents for "{name}" not filled ({error})', extra=_ids(board_id, item_id))
+        log.warning(f'Catalogue link for "{name}" not added ({error})', extra=_ids(board_id, item_id))
 
 
-def _drop_dead_catalogues(best, stats):
+def _resolve_catalogues(best, stats):
     """
-    Opens each vendor's catalogue link (all at the same time). One that does not
-    open is removed, so that vendor counts as having no catalogue and gets the
-    product overview instead.
+    Each vendor's catalogue, all vendors at the same time: the AI's catalogue link
+    if it opens; otherwise a catalogue linked on the vendor's home page (found by
+    the code, no AI) if it opens; otherwise none - the column stays empty. Sets or
+    clears vendor['catalogue_url'].
     """
-    links = [(vendor, mapping.catalogue(vendor)) for vendor in best]
-    links = [(vendor, link) for vendor, link in links if link]
-    if not links:
-        return
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as pool:
-        opens = [(vendor, link, pool.submit(contextvars.copy_context().run, pages.catalogue_exists, link))
-                 for vendor, link in links]
-        for vendor, link, future in opens:
-            if not future.result():
-                vendor['catalogue_url'] = None
-                stats.setdefault('dead_catalogues', []).append(link)
-
-
-def _product_overviews(best, product, stats):
-    """
-    {index in best: product rows} for the vendors without a catalogue: the AI lists
-    each one's products from its website (all vendors at the same time). Fewer than
-    settings.MIN_OVERVIEW_PRODUCTS: asked once more for other products. Still fewer:
-    the vendor has no more - the products found are attached. No products at all, or
-    the question fails: that vendor gets no overview.
-    """
-    todo = [(index, vendor) for index, vendor in enumerate(best)
-            if not mapping.catalogue(vendor) and mapping.url(vendor.get('website'))]
-    if not todo:
-        return {}
-
     def one(vendor):
-        company, website = mapping.item_name(vendor), mapping.url(vendor['website'])
-        calls, searches = 0, 0
-        try:
-            products, found = research.list_products(company, website, product)
-            calls, searches = 1, found
-            rows = mapping.product_overview(vendor, products)
-            if 0 < len(rows) < settings.MIN_OVERVIEW_PRODUCTS:
-                more, found = research.list_products(company, website, product, [row['name'] for row in rows])
-                calls, searches = 2, searches + found
-                rows = mapping.product_overview(vendor, products + more)
-            return rows, calls, searches, None
-        except Exception as error:  # noqa: BLE001 - that vendor gets no overview
-            return [], max(calls, 1), searches, str(error)
+        """(the AI's link that opens, a catalogue found on the home page, the AI's dead link)."""
+        link = mapping.catalogue(vendor)
+        if link and pages.catalogue_exists(link):
+            return link, None, None
+        website = mapping.url(vendor.get('website'))
+        return None, (pages.find_catalogue(website) if website else None), link
 
-    overviews = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(todo)) as pool:
-        futures = [(index, vendor, pool.submit(contextvars.copy_context().run, one, vendor)) for index, vendor in todo]
-        for index, vendor, future in futures:
-            rows, calls, searches, error = future.result()
-            stats['ai_calls'] += calls
-            stats['searches'] += searches
-            name = mapping.item_name(vendor)
-            if error:
-                log.warning(f'Product overview for "{name}" not made ({error})')
-                continue
-            if 0 < len(rows) < settings.MIN_OVERVIEW_PRODUCTS:
-                stats.setdefault('short_overviews', {})[name] = len(rows)   # all the vendor has: still attached
-            if rows:
-                overviews[index] = rows
-    return overviews
+    if not best:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(best)) as pool:
+        futures = [(vendor, pool.submit(contextvars.copy_context().run, one, vendor)) for vendor in best]
+        for vendor, future in futures:
+            works, on_site, dead = future.result()
+            if works:
+                continue  # the AI's link opens
+            vendor['catalogue_url'] = on_site
+            if dead:
+                stats.setdefault('dead_catalogues', []).append(dead)
+            if on_site:
+                stats.setdefault('catalogues_from_website', []).append(on_site)
 
 
 def _product_category(board_id, item_id, product, stats):

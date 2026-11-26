@@ -410,3 +410,20 @@ promote the previous app version. No other feature depends on this one.
   after cleaning: one more question for *other* products of the same website (the ones listed are named,
   so they are not repeated). Still fewer than 30: the vendor has no more, so the products found are
   attached (logged as `short_overviews`) - never padded with invented products. None at all: empty.
+- **Catalogue order** (`service._resolve_catalogues`, all vendors at the same time): (1) the AI's catalogue
+  link if it opens; (2) otherwise a catalogue linked on the vendor's home page, found by the code
+  (`pages.find_catalogue`: a link whose address or text names a catalogue - Katalog, Catalogue,
+  Broschüre, Brochure, Prospekt - on the vendor's own site, PDFs first, opened before use; no AI cost);
+  (3) otherwise the product overview CSV. Found on the live board: the AI missed Sitwell's
+  "Bürostuhl Gesamtkatalog 2026/27" PDF on its home page; (2) finds it.
+
+## Change: the product overview CSV removed (2026-11-24)
+
+- **Decision:** Catalogue / Documents gets **only a real catalogue**. The product overview CSV (AI listing
+  30-50 products when there was no catalogue) is removed - `list_products`, `products_prompt`,
+  `upload_file`, `product_overview(_csv)`, `MIN/MAX_OVERVIEW_PRODUCTS` and their tests are gone.
+- **Now:** (1) the AI's catalogue link if it opens; (2) otherwise a catalogue linked on the vendor's home
+  page (found by the code, opened first); (3) otherwise the column stays empty. The points above about
+  the product overview no longer apply.
+- **Effect:** no extra AI call per vendor and no extra minute; a search costs what it did before the
+  catalogue feature, plus one home page load per vendor without a working AI link.

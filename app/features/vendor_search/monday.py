@@ -12,7 +12,6 @@ runs on a background thread, like Company Enrichment.
   create_vendor(board_id, name, values)          one new vendor item (the 2nd and 3rd): group 1, then moved to 2
   job_function_titles()                          the Job Functions board's titles: {title: item id}
   add_catalogue(board_id, item_id, link, name)   the vendor's catalogue link in Catalogue / Documents
-  upload_file(item_id, file_name, content)       a file (the product overview) into Catalogue / Documents
 """
 import json
 import logging
@@ -213,35 +212,6 @@ def add_catalogue(board_id, item_id, link, name):
         'boardId': str(board_id), 'itemId': str(item_id), 'columnId': settings.CATALOGUE,
         'files': [{'fileType': 'link', 'name': name, 'linkToFile': link}],
     })
-
-
-FILE_URL = 'https://api.monday.com/v2/file'
-
-ADD_FILE = """
-mutation ($file: File!, $itemId: ID!, $columnId: String!) {
-  add_file_to_column(item_id: $itemId, column_id: $columnId, file: $file) { id }
-}
-"""
-
-
-def upload_file(item_id, file_name, content, content_type='text/csv'):
-    """One file into Catalogue / Documents, through monday's file endpoint (a multipart request)."""
-    res = requests.post(
-        FILE_URL,
-        data={'query': ADD_FILE, 'variables': json.dumps({'itemId': str(item_id), 'columnId': settings.CATALOGUE})},
-        files={'variables[file]': (file_name, content, content_type)},
-        headers={'Authorization': settings.monday_token(), 'API-Version': settings.monday_api_version()},
-        timeout=60,
-    )
-    try:
-        body = res.json() or {}
-    except ValueError:
-        res.raise_for_status()
-        raise MondayError([{'message': f'HTTP {res.status_code}: not JSON'}])
-    if body.get('errors') or body.get('error_message'):
-        raise MondayError(body.get('errors') or [{'message': body.get('error_message')}])
-    res.raise_for_status()
-    return body.get('data') or {}
 
 
 def job_function_titles():
